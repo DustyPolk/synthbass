@@ -1,0 +1,8 @@
+[package]
+name = "synthbass-engine"
+description = "Realtime-safe sound engine for Synthbass. No audio-backend or GUI dependencies."
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+
+[dependencies]

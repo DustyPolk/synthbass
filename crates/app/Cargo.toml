@@ -1,0 +1,9 @@
+[package]
+name = "synthbass"
+edition.workspace = true
+version.workspace = true
+publish.workspace = true
+default-run = "synthbass"
+
+[dependencies]
+synthbass-engine = { path = "../engine" }
