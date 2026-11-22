@@ -23,7 +23,11 @@ Records the dry signal until Ctrl-C. The port defaults to Scarlett input 1.";
 
 fn main() -> ExitCode {
     let args = match parse_args(std::env::args().skip(1)) {
-        Ok(args) => args,
+        Ok(Command::Record(args)) => args,
+        Ok(Command::Help) => {
+            println!("{USAGE}");
+            return ExitCode::SUCCESS;
+        }
         Err(message) => {
             eprintln!("{message}\n{USAGE}");
             return ExitCode::from(2);
@@ -39,27 +43,33 @@ fn main() -> ExitCode {
 }
 
 #[derive(Debug, PartialEq)]
+enum Command {
+    Record(Args),
+    Help,
+}
+
+#[derive(Debug, PartialEq)]
 struct Args {
     output: PathBuf,
     port: Option<String>,
 }
 
-fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Args, String> {
+fn parse_args(mut args: impl Iterator<Item = String>) -> Result<Command, String> {
     let mut output = None;
     let mut port = None;
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--port" => port = Some(args.next().ok_or("--port needs a port name")?),
-            "-h" | "--help" => return Err(String::new()),
+            "-h" | "--help" => return Ok(Command::Help),
             flag if flag.starts_with('-') => return Err(format!("unknown option {flag}")),
             _ if output.is_some() => return Err(format!("unexpected argument {arg}")),
             _ => output = Some(PathBuf::from(arg)),
         }
     }
-    Ok(Args {
+    Ok(Command::Record(Args {
         output: output.ok_or("missing output path")?,
         port,
-    })
+    }))
 }
 
 fn record(args: &Args) -> Result<(), String> {
@@ -234,21 +244,29 @@ mod tests {
         let parse = |args: &[&str]| parse_args(args.iter().map(|a| a.to_string()));
         assert_eq!(
             parse(&["clips/open-strings.wav"]),
-            Ok(Args {
+            Ok(Command::Record(Args {
                 output: "clips/open-strings.wav".into(),
                 port: None
-            })
+            }))
         );
         assert_eq!(
             parse(&["--port", "system:capture_2", "x.wav"]),
-            Ok(Args {
+            Ok(Command::Record(Args {
                 output: "x.wav".into(),
                 port: Some("system:capture_2".into())
-            })
+            }))
         );
         assert!(parse(&[]).is_err());
         assert!(parse(&["x.wav", "--port"]).is_err());
         assert!(parse(&["x.wav", "y.wav"]).is_err());
+    }
+
+    #[test]
+    fn help_is_asked_for_with_either_flag_whatever_else_is_given() {
+        let parse = |args: &[&str]| parse_args(args.iter().map(|a| a.to_string()));
+        assert_eq!(parse(&["--help"]), Ok(Command::Help));
+        assert_eq!(parse(&["-h"]), Ok(Command::Help));
+        assert_eq!(parse(&["x.wav", "--help"]), Ok(Command::Help));
     }
 
     #[test]
