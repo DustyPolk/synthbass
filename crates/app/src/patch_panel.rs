@@ -187,6 +187,15 @@ impl PatchPanel {
             Ok(()) => {
                 self.loaded = None;
                 self.message = Some(format!("Deleted \"{name}\"."));
+                // Otherwise the next launch warns that the patch is gone.
+                let forget = |s: &mut settings::Settings| {
+                    if s.last_patch.as_deref() == Some(name.as_str()) {
+                        s.last_patch = None;
+                    }
+                };
+                if let Err(err) = self.settings.update(forget) {
+                    self.message = Some(format!("Could not save settings: {err}"));
+                }
             }
             Err(err) => self.message = Some(format!("Could not delete: {err}.")),
         }
@@ -197,5 +206,53 @@ impl PatchPanel {
         if let Err(err) = self.settings.update(|s| s.last_patch = Some(name)) {
             self.message = Some(format!("Could not save settings: {err}"));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_dir(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!(
+            "synthbass-panel-test-{}-{name}",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_dir_all(&dir);
+        dir
+    }
+
+    /// A panel over a fresh patch library and settings file holding `mine`,
+    /// with `last_patch` set to `last`.
+    fn panel_with(dir: &std::path::Path, last: &str) -> (PatchPanel, settings::Store) {
+        let mut library = PatchLibrary::open(Some(dir.join("patches")));
+        library.save(&Patch::new("Mine")).unwrap();
+        library.save(&Patch::new("Other")).unwrap();
+        let (settings, _) = settings::Store::open(Some(dir.join("settings.toml")));
+        settings
+            .update(|s| s.last_patch = Some(last.into()))
+            .unwrap();
+        let (panel, _) = PatchPanel::new(library, settings.clone());
+        (panel, settings)
+    }
+
+    #[test]
+    fn deleting_the_remembered_patch_forgets_it_so_the_next_launch_does_not_warn() {
+        let dir = temp_dir("delete-last");
+        let (mut panel, settings) = panel_with(&dir, "Mine");
+        panel.delete("Mine".into());
+        assert_eq!(settings.get().last_patch, None);
+
+        let library = PatchLibrary::open(Some(dir.join("patches")));
+        let (relaunched, _) = PatchPanel::new(library, settings);
+        assert_eq!(relaunched.message, None);
+    }
+
+    #[test]
+    fn deleting_another_patch_keeps_the_remembered_one() {
+        let dir = temp_dir("delete-other");
+        let (mut panel, settings) = panel_with(&dir, "Mine");
+        panel.delete("Other".into());
+        assert_eq!(settings.get().last_patch.as_deref(), Some("Mine"));
     }
 }
