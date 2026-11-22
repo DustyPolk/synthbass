@@ -238,3 +238,68 @@ fn picking_the_same_note_again_refires_the_filter_envelope() {
     let after = brightness_between(&out, repick + 0.03, repick + 0.08);
     assert!(after > 2.0 * before, "after {after} vs before {before}");
 }
+
+/// Energy of `signal` at `freq`: a Goertzel filter over a Hann window.
+fn energy_at(signal: &[f32], freq: f32) -> f32 {
+    let n = signal.len() as f32;
+    let c = 2.0 * (std::f32::consts::TAU * freq / SAMPLE_RATE).cos();
+    let (mut s1, mut s2) = (0.0f32, 0.0f32);
+    for (i, &x) in signal.iter().enumerate() {
+        let window = 0.5 - 0.5 * (std::f32::consts::TAU * i as f32 / n).cos();
+        let s = window * x + c * s1 - s2;
+        s2 = s1;
+        s1 = s;
+    }
+    s1 * s1 + s2 * s2 - c * s1 * s2
+}
+
+/// Two notes picked 0.2 s apart each get their own filter sweep: when the
+/// second starts it is bright, while the first, whose sweep has closed,
+/// stays dark.
+#[test]
+fn voices_starting_at_different_times_sweep_independently() {
+    let mut engine = plucky_voice(1.0);
+    engine.set_param(Param::TrackedCutoff, 40.0);
+    engine.set_param(Param::TrackedResonance, 0.0);
+    engine.set_param(Param::TrackedPickSensitivity, 0.0);
+    engine.set_param(Param::TrackedFilterEnvelopeDecay, 0.1);
+    // E1, then C#4: its partials all fall well above the ones the first
+    // voice is measured at.
+    let low = hz(28.0);
+    let mut dry = vec![0.0; (0.3 * SAMPLE_RATE) as usize];
+    dry.extend(bass_tone(low, 0.3, 1.0, 0.8));
+    let late = (0.5 * SAMPLE_RATE) as usize;
+    for (s, t) in dry[late..].iter_mut().zip(bass_tone(hz(61.0), 0.3, 1.0, 0.6)) {
+        *s += t;
+    }
+    let mut out = Vec::new();
+    let mut second_start = None;
+    for block in dry.chunks(128) {
+        out.extend(render(&mut engine, block, &[128]).left);
+        if second_start.is_none() && engine.readout().voices.len() == 2 {
+            second_start = Some(out.len());
+        }
+    }
+    let first_start = out.iter().position(|&s| s != 0.0).expect("a voice sounds");
+    let second_start = second_start.expect("the second note gets its own voice");
+    let window = |start: usize| &out[start + 480..start + 2_880];
+
+    // The first voice's brightness, from its 3rd and 4th harmonics against
+    // its fundamental; the second voice has nothing this low.
+    let first_brightness = |signal: &[f32]| {
+        (energy_at(signal, 3.0 * low) + energy_at(signal, 4.0 * low)) / energy_at(signal, low)
+    };
+    let first_open = first_brightness(window(first_start));
+    let first_late = first_brightness(window(second_start));
+    assert!(
+        first_open > 10.0 * first_late,
+        "first voice: {first_open} at its start vs {first_late} at the second's"
+    );
+
+    let before = brightness(&out[second_start - 2_400..second_start]);
+    let after = brightness(window(second_start));
+    assert!(
+        after > 3.0 * before,
+        "{after} after the second note starts vs {before} before"
+    );
+}
