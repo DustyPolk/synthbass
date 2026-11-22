@@ -71,11 +71,7 @@ fn a_chromatic_run_plays_one_voice_per_note() {
     check(
         "chromatic-run",
         SINGLE_NOTES,
-        &[
-            (4.21, "extra 0.10: attack ghost"),
-            (6.67, "G1 attack ghosts since chord tuning"),
-            (9.38, "extra 0.11: attack ghost"),
-        ],
+        &[(9.38, "extra 0.11: attack ghost")],
     );
 }
 
@@ -85,7 +81,6 @@ fn palm_mutes_end_their_voices_promptly() {
         "palm-mutes",
         SINGLE_NOTES,
         &[
-            (11.06, "eighth-note attack ghost since chord tuning"),
             (11.97, "eighth-note attack ghost"),
             (12.26, "eighth-note attack ghost since chord tuning"),
             (12.84, "attack ghost since chord tuning"),
@@ -198,6 +193,35 @@ fn print_voice_histograms() {
                 .map(|(k, (c, cents))| format!("{k}:{:.0}%({:+.0}c)", 100.0 * c / n, cents / c))
                 .collect();
             println!("  {:6.2} {:?} -> {}", e.onset, e.notes.len(), s.join(" "));
+        }
+    }
+}
+
+/// The voices whenever their set changes, for `DUMP=clip:t0:t1`.
+#[test]
+#[ignore]
+fn print_voices() {
+    let spec = std::env::var("DUMP").unwrap_or("palm-mutes:12.84:13.24".into());
+    let parts: Vec<&str> = spec.split(':').collect();
+    let (t0, t1): (f32, f32) = (parts[1].parse().unwrap(), parts[2].parse().unwrap());
+    let clip = load_clip(&clip_path(parts[0]));
+    let run = run_clip(&clip, &[128]);
+    let mut last = String::new();
+    for (t, r) in run.readouts.iter().filter(|(t, _)| *t >= t0 && *t <= t1) {
+        let key: Vec<String> = r
+            .voices
+            .iter()
+            .map(|v| format!("{:.2}#{}", v.pitch, v.id))
+            .collect();
+        let key = key.join(" ");
+        let rounded: String = r
+            .voices
+            .iter()
+            .map(|v| format!("{}#{} ", v.pitch.round(), v.id))
+            .collect();
+        if rounded != last {
+            println!("{t:.3} => {key}");
+            last = rounded;
         }
     }
 }
