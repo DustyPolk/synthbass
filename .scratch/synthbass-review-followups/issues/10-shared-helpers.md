@@ -8,8 +8,8 @@
 
 **Context budget:** finish within one fresh context, well under 150K tokens. Read `GLOSSARY.md`, `.scratch/synthbass-review-followups/spec.md` and the relevant ADRs; skip anything unrelated. Keep test and build output terse (filter to failures).
 
-- [ ] Each helper exists once and every former copy calls it
-- [ ] Test: the tuner and the window format the same pitch identically
-- [ ] Test: the recording command and the app pick the same default port from the same port list
-- [ ] Pure refactor: no behaviour change; the realtime-safety test still passes
-- [ ] All existing tests pass, including the recorded-clip suites, with no new exemptions
+- [x] Each helper exists once and every former copy calls it
+- [x] Test: the tuner and the window format the same pitch identically
+- [x] Test: the recording command and the app pick the same default port from the same port list
+- [x] Pure refactor: no behaviour change; the realtime-safety test still passes
+- [x] All existing tests pass, including the recorded-clip suites, with no new exemptions
