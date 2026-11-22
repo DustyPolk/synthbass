@@ -307,6 +307,28 @@ fn a_held_note_keeps_its_voice_through_an_attack_beside_it() {
     }
 }
 
+/// A louder low note picked under a held one leaves every probe below the
+/// held note unjudged for a while; they must not outrank it, though the held
+/// note's own periodicity is still judged.
+#[test]
+fn a_held_note_keeps_its_voice_when_a_louder_low_note_is_picked_under_it() {
+    let held = 50.0;
+    let mut dry = after_settling(bass_tone(hz(held), 0.3, 1.0, 1.5));
+    let start = SAMPLE_RATE as usize;
+    for (s, low) in dry[start..]
+        .iter_mut()
+        .zip(bass_tone(hz(28.0), 0.9, 1.0, 0.8))
+    {
+        *s += low;
+    }
+    if let Some((time, voices)) = held_voice_lost(&dry, held) {
+        assert!(
+            time > 1.4,
+            "{time:.3} s: the held note's voice was replaced by {voices:?}"
+        );
+    }
+}
+
 /// Short sharp attacks a little above held low notes: each held note (MIDI),
 /// each attack size (semitones sharp), length (seconds) and start time
 /// (seconds). Returns the variants that restarted the held note's voice,

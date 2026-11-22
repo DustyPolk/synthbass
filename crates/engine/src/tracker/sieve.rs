@@ -22,7 +22,7 @@ const MIN_CLARITY: f32 = 0.1;
 /// noise, and needs no periodicity: in a chord a quieter note's periodicity
 /// is swamped by the louder one.
 const STEADY_PARTIALS: usize = 2;
-/// An unjudged sounding note's periodicity must still be this clear.
+/// A sounding note carried through an attack must still be this periodic.
 const UNJUDGED_CLARITY: f32 = 0.3;
 /// Lower fundamentals a candidate could be a harmonic of: f0/2 … f0/8.
 const OWNER_HARMONICS: usize = 8;
@@ -276,19 +276,22 @@ impl Sieve {
                 .iter()
                 .any(|&pitch| (pitch - hz_to_midi(f0)).abs() <= CONTINUATION_DISTANCE);
             let carried_on = !out.is_empty() && settled_partials > 0 && continues_sounding;
-            // A louder attack beside a sounding note leaves too little of the
-            // note's energy in the older half of any periodicity span for a
-            // judgement; its settled partials still show it carries on.
-            let carries_on_unjudged =
+            // A louder attack beside or below a sounding note leaves too little
+            // of the energy before it in the older half of a periodicity span
+            // for a judgement: of the note itself (an attack beside it), or of
+            // the lower notes that could own it (a low note picked under it,
+            // while the note itself is still judged). Its settled partials
+            // still show it carries on, so neither unjudged verdict drops it.
+            let carried_through_attack =
                 steady && continues_sounding && periodicity.clarity >= UNJUDGED_CLARITY;
-            if (!periodicity.judged && !carries_on_unjudged)
+            if (!periodicity.judged && !carried_through_attack)
                 || (periodicity.clarity < MIN_CLARITY && !steady && !carried_on)
                 || self.outranked_from_below(
                     bank,
                     history,
                     f0,
                     periodicity.clarity,
-                    !carries_on_unjudged,
+                    !carried_through_attack,
                 )
             {
                 continue;
