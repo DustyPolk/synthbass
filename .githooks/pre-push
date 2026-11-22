@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# The repo has no CI, so the full check runs before anything leaves. It
+# checks the working tree, so commit or stash other changes first for a
+# verdict on exactly what is pushed.
+set -euo pipefail
+exec "$(git rev-parse --show-toplevel)/scripts/check.sh"

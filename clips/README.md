@@ -20,8 +20,10 @@ against. Each clip is two files with the same name:
    A wrong port name prints the list of available ports.
 3. Wait one second, play, let the last note ring out, then wait one more second.
 4. Press Ctrl-C. The command prints the length and the peak level.
-   Aim for a peak between -12 and -6 dBFS. Above -1 dBFS, turn the Scarlett
-   gain down and record again. Below -20 dBFS, turn it up.
+   Aim for a peak between -20 and -6 dBFS. Above -1 dBFS, turn the Scarlett
+   gain down and record again. A passive bass may peak only around -18 to
+   -12 dBFS even at full gain; that is fine, and it is the level the engine
+   is tuned for (see `CODING_STANDARDS.md`, gain staging).
 5. Write the `.notes` file next to the WAV (see below).
 
 Running it again with the same name overwrites the clip.

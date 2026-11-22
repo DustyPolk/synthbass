@@ -11,3 +11,7 @@ Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-
 ### Domain docs
 
 Single-context: one `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+
+### Research notes
+
+The DSP and crate research behind the engine and app is in `docs/research/`. Read the relevant note before changing the filters, tracker, oscillators or JACK code.

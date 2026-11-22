@@ -1,12 +1,10 @@
 //! Synthbass: plays synth sound from a live bass through JACK (PipeWire).
 
-mod atomic_file;
 mod audio;
 mod connection;
 mod dropdown;
 mod patch_panel;
-mod patches;
-use synthbass::ports;
+use synthbass::{atomic_file, patches, ports};
 mod ports_panel;
 mod settings;
 mod ui;
