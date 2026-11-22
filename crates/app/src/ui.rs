@@ -198,56 +198,59 @@ impl eframe::App for SynthbassApp {
         }
 
         egui::CentralPanel::default().show(ui, |ui| {
-            ui.heading("Synthbass");
-            ui.add_space(8.0);
+            // The window can be shorter than everything in it.
+            egui::ScrollArea::vertical().show(ui, |ui| {
+                ui.heading("Synthbass");
+                ui.add_space(8.0);
 
-            self.tuner(ui);
-            ui.add_space(8.0);
+                self.tuner(ui);
+                ui.add_space(8.0);
 
-            ui.label("Input");
-            let level = self.readout.input_level;
-            ui.add(egui::ProgressBar::new(meter_fill(level)).text(format_db(level)));
-            self.noise_gate_knob(ui);
-            ui.add_space(8.0);
+                ui.label("Input");
+                let level = self.readout.input_level;
+                ui.add(egui::ProgressBar::new(meter_fill(level)).text(format_db(level)));
+                self.noise_gate_knob(ui);
+                ui.add_space(8.0);
 
-            ui.label("Direct");
-            self.knob(ui, Param::DirectDrive, "Drive");
-            self.knob(ui, Param::DirectCutoff, "Cutoff");
-            self.knob(ui, Param::DirectResonance, "Resonance");
-            self.knob(ui, Param::DirectEnvelopeSensitivity, "Envelope sensitivity");
-            self.knob(ui, Param::DirectLevel, "Direct layer level");
-            ui.add_space(8.0);
+                ui.label("Direct");
+                self.knob(ui, Param::DirectDrive, "Drive");
+                self.knob(ui, Param::DirectCutoff, "Cutoff");
+                self.knob(ui, Param::DirectResonance, "Resonance");
+                self.knob(ui, Param::DirectEnvelopeSensitivity, "Envelope sensitivity");
+                self.knob(ui, Param::DirectLevel, "Direct layer level");
+                ui.add_space(8.0);
 
-            ui.label("Tracked");
-            self.waveshape(ui, Param::TrackedOsc1Waveshape, "Oscillator 1");
-            self.waveshape(ui, Param::TrackedOsc2Waveshape, "Oscillator 2");
-            self.octave(ui, Param::TrackedOsc2Octave, "Oscillator 2 octave");
-            self.knob(ui, Param::TrackedOsc2Detune, "Oscillator 2 detune");
-            self.knob(ui, Param::TrackedOscMix, "Oscillator mix (1 → 2)");
-            self.knob(ui, Param::TrackedSubLevel, "Sub-oscillator level");
-            self.knob(ui, Param::TrackedCutoff, "Cutoff");
-            self.knob(ui, Param::TrackedResonance, "Resonance");
-            self.knob(
-                ui,
-                Param::TrackedFilterEnvelopeAmount,
-                "Filter envelope amount",
-            );
-            self.knob(
-                ui,
-                Param::TrackedFilterEnvelopeDecay,
-                "Filter envelope decay",
-            );
-            self.knob(ui, Param::TrackedPickSensitivity, "Pick sensitivity");
-            self.knob(ui, Param::TrackedLevel, "Tracked layer level");
-            self.voices(ui);
-            ui.add_space(8.0);
+                ui.label("Tracked");
+                self.waveshape(ui, Param::TrackedOsc1Waveshape, "Oscillator 1");
+                self.waveshape(ui, Param::TrackedOsc2Waveshape, "Oscillator 2");
+                self.octave(ui, Param::TrackedOsc2Octave, "Oscillator 2 octave");
+                self.knob(ui, Param::TrackedOsc2Detune, "Oscillator 2 detune");
+                self.knob(ui, Param::TrackedOscMix, "Oscillator mix (1 → 2)");
+                self.knob(ui, Param::TrackedSubLevel, "Sub-oscillator level");
+                self.knob(ui, Param::TrackedCutoff, "Cutoff");
+                self.knob(ui, Param::TrackedResonance, "Resonance");
+                self.knob(
+                    ui,
+                    Param::TrackedFilterEnvelopeAmount,
+                    "Filter envelope amount",
+                );
+                self.knob(
+                    ui,
+                    Param::TrackedFilterEnvelopeDecay,
+                    "Filter envelope decay",
+                );
+                self.knob(ui, Param::TrackedPickSensitivity, "Pick sensitivity");
+                self.knob(ui, Param::TrackedLevel, "Tracked layer level");
+                self.voices(ui);
+                ui.add_space(8.0);
 
-            ui.label("Mix");
-            self.knob(ui, Param::DryLevel, "Dry signal level");
-            self.knob(ui, Param::OutputLevel, "Output level");
-            ui.add_space(8.0);
+                ui.label("Mix");
+                self.knob(ui, Param::DryLevel, "Dry signal level");
+                self.knob(ui, Param::OutputLevel, "Output level");
+                ui.add_space(8.0);
 
-            ports_panel::show(ui, &self.connection);
+                ports_panel::show(ui, &self.connection);
+            });
         });
 
         // Keep the meter moving without input events.

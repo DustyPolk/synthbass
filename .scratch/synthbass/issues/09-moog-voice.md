@@ -8,7 +8,7 @@
 
 **Context budget:** finish within one fresh context, well under 150K tokens. Read `GLOSSARY.md`, the spec, and the relevant ADRs; skip anything unrelated. Keep test and build output terse (filter to failures).
 
-- [ ] Every voice has its own ladder filter and filter envelope; voices starting at different times sweep independently
-- [ ] Offline tests: a harder synthetic onset opens the filter envelope further than a soft one (measured as more high-frequency energy shortly after onset); filter envelope amount 0 leaves the filter static; sub-oscillator output is an octave below the voice pitch; octave switch shifts oscillator 2 by exactly an octave; max resonance stays under the limiter ceiling
-- [ ] String following still sets voice loudness
+- [x] Every voice has its own ladder filter and filter envelope; voices starting at different times sweep independently
+- [x] Offline tests: a harder synthetic onset opens the filter envelope further than a soft one (measured as more high-frequency energy shortly after onset); filter envelope amount 0 leaves the filter static; sub-oscillator output is an octave below the voice pitch; octave switch shifts oscillator 2 by exactly an octave; max resonance stays under the limiter ceiling
+- [x] String following still sets voice loudness
 - [ ] Verified by playing: a classic Moog pluck is achievable from the controls
