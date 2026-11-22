@@ -1,13 +1,13 @@
 # Deep and heavy: a square blended evenly with a saw an octave down, a loud
 # sub, filter mostly closed.
-version = 1
+version = 2
 name = "Fat Sub"
 
 [direct]
 drive = 0.6
 cutoff_hz = 200.0
 resonance = 0.1
-envelope_sensitivity = 0.2
+envelope_sensitivity = 0.04
 level = 0.25
 
 [tracked]
@@ -17,6 +17,7 @@ osc2_octave = -1
 osc2_detune_cents = 0.0
 osc_mix = 0.5
 sub_level = 0.8
+sub_waveshape = "square"
 cutoff_hz = 180.0
 resonance = 0.15
 filter_envelope_amount = 0.25

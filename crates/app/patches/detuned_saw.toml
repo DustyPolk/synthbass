@@ -1,13 +1,13 @@
 # Two saws a few cents apart beat against each other, bright and wide,
 # with the filter left fairly open.
-version = 1
+version = 2
 name = "Detuned Saw"
 
 [direct]
 drive = 0.5
 cutoff_hz = 600.0
 resonance = 0.2
-envelope_sensitivity = 0.4
+envelope_sensitivity = 0.08
 level = 0.3
 
 [tracked]
@@ -17,6 +17,7 @@ osc2_octave = 0
 osc2_detune_cents = 12.0
 osc_mix = 0.5
 sub_level = 0.3
+sub_waveshape = "square"
 cutoff_hz = 700.0
 resonance = 0.25
 filter_envelope_amount = 0.4

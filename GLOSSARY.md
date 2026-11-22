@@ -36,6 +36,10 @@ _Avoid_: Envelope follower (as a domain term), amp envelope
 The balance between a voice's two oscillators, from oscillator 1 alone to oscillator 2 alone. It starts at an even blend, so oscillator 2's waveshape, octave and detune are heard. The sub-oscillator has its own level and sits outside the mix.
 _Avoid_: Oscillator balance, crossfade, oscillator 2 level
 
+**Sub-oscillator**:
+A third oscillator in each voice, one octave below the note, with its own level and a sine or square waveshape. A sine adds clean low weight; a square adds a buzzier, harmonic-rich low end. It stays an octave down even on the lowest notes, where it is felt more than heard.
+_Avoid_: Sub, sub bass (as a control name)
+
 **Filter envelope**:
 A Moog-style sweep of a voice's filter that fires when its note is detected and opens wider the harder the note is picked.
 _Avoid_: ADSR, contour

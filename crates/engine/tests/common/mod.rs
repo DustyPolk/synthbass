@@ -87,3 +87,18 @@ pub fn bass_tone(freq: f32, amplitude: f32, fundamental: f32, seconds: f32) -> V
     let scale = amplitude / peak(&raw[..first_period.min(raw.len())]);
     raw.into_iter().map(|s| s * scale).collect()
 }
+
+/// Amplitude of the `freq` component of `signal` (Goertzel), as the peak of
+/// the sine it would be.
+pub fn amplitude_at(signal: &[f32], freq: f32) -> f32 {
+    let w = std::f32::consts::TAU * freq / SAMPLE_RATE;
+    let (mut s1, mut s2) = (0.0f64, 0.0f64);
+    let coeff = 2.0 * (w as f64).cos();
+    for &x in signal {
+        let s = x as f64 + coeff * s1 - s2;
+        s2 = s1;
+        s1 = s;
+    }
+    let power = s1 * s1 + s2 * s2 - coeff * s1 * s2;
+    (2.0 * power.max(0.0).sqrt() / signal.len() as f64) as f32
+}

@@ -3,19 +3,22 @@
 mod common;
 
 use common::*;
-use synthbass_engine::{Format, Param, Patch};
+use synthbass_engine::{Format, PATCH_VERSION, Param, Patch, SubWaveshape};
 
 const V1_SQUELCH: &str = include_str!("fixtures/v1_squelch.toml");
 
 #[test]
-fn a_patch_file_written_by_v1_loads_identically() {
+fn a_patch_file_written_by_v1_loads_sounding_identically() {
+    // Version 2 retuned envelope sensitivity to real playing levels (five
+    // times the sweep per unit) and added the sub-oscillator waveshape, whose
+    // default is a sine; v1 subs were always square.
     let patch = Patch::from_toml(V1_SQUELCH, "fallback").unwrap();
     assert_eq!(patch.name, "Squelch");
     let expected = [
         (Param::DirectDrive, 0.7),
         (Param::DirectCutoff, 250.0),
         (Param::DirectResonance, 0.75),
-        (Param::DirectEnvelopeSensitivity, 0.9),
+        (Param::DirectEnvelopeSensitivity, 0.9 / 5.0),
         (Param::DirectLevel, 0.3),
         (Param::TrackedOsc1Waveshape, 0.0),
         (Param::TrackedOsc2Waveshape, 0.0),
@@ -23,6 +26,7 @@ fn a_patch_file_written_by_v1_loads_identically() {
         (Param::TrackedOsc2Detune, 0.0),
         (Param::TrackedOscMix, 0.0),
         (Param::TrackedSubLevel, 0.2),
+        (Param::TrackedSubWaveshape, SubWaveshape::Square.value()),
         (Param::TrackedCutoff, 150.0),
         (Param::TrackedResonance, 0.85),
         (Param::TrackedFilterEnvelopeAmount, 0.9),
@@ -43,7 +47,7 @@ fn a_patch_file_written_by_v1_loads_identically() {
 fn unusual(param: Param) -> f32 {
     let range = param.range();
     match param.info().format {
-        Format::Waveshape => 1.0,
+        Format::Waveshape | Format::SubWaveshape => 1.0,
         Format::Octave => -1.0,
         _ => range.start() + 0.37 * (range.end() - range.start()),
     }
@@ -123,7 +127,10 @@ fn the_file_is_readable_and_carries_a_version() {
     let mut patch = Patch::new("Readable");
     patch.set(Param::DirectResonance, 0.37);
     let text = patch.to_toml();
-    assert!(text.contains("version = 1"), "{text}");
+    assert!(
+        text.contains(&format!("version = {PATCH_VERSION}")),
+        "{text}"
+    );
     assert!(text.contains("name = \"Readable\""), "{text}");
     assert!(text.contains("resonance = 0.37\n"), "{text}");
     assert!(text.contains("osc1_waveshape = \"saw\""), "{text}");
@@ -202,4 +209,23 @@ fn switching_patches_mid_note_does_not_click() {
             to.name
         );
     }
+}
+
+#[test]
+fn a_current_file_without_a_sub_waveshape_plays_a_sine_sub() {
+    let text = "version = 2\nname = \"New\"\n[tracked]\nsub_level = 0.5\n";
+    let patch = Patch::from_toml(text, "fallback").unwrap();
+    assert_eq!(
+        patch.get(Param::TrackedSubWaveshape),
+        SubWaveshape::Sine.value()
+    );
+}
+
+#[test]
+fn the_sub_waveshape_is_written_by_name() {
+    let mut patch = Patch::new("Named");
+    patch.set(Param::TrackedSubWaveshape, SubWaveshape::Square.value());
+    assert!(patch.to_toml().contains("sub_waveshape = \"square\""));
+    patch.set(Param::TrackedSubWaveshape, SubWaveshape::Sine.value());
+    assert!(patch.to_toml().contains("sub_waveshape = \"sine\""));
 }

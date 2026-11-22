@@ -209,3 +209,31 @@ fn an_out_of_range_noise_gate_does_not_silence_the_direct_layer() {
         );
     }
 }
+
+/// The 8th harmonic against the fundamental, through the direct layer with a
+/// clean (undriven) signal and the filter set low, as a ratio of the same
+/// in the dry signal: 1 when the filter is wide open.
+fn direct_brightness(envelope_sensitivity: f32, peak: f32) -> f32 {
+    let note = 110.0;
+    let dry = bass_tone(note, peak, 1.0, 0.6);
+    let mut engine = direct_only();
+    engine.set_param(Param::DirectDrive, 0.0);
+    engine.set_param(Param::DirectResonance, 0.0);
+    engine.set_param(Param::DirectCutoff, 100.0);
+    engine.set_param(Param::DirectEnvelopeSensitivity, envelope_sensitivity);
+    let out = render(&mut engine, &dry, &[128]).left;
+    let window = (0.05 * SAMPLE_RATE) as usize..(0.25 * SAMPLE_RATE) as usize;
+    let ratio = |signal: &[f32]| amplitude_at(signal, 8.0 * note) / amplitude_at(signal, note);
+    ratio(&out[window.clone()]) / ratio(&dry[window])
+}
+
+#[test]
+fn full_envelope_sensitivity_opens_the_filter_wide_at_a_real_playing_level() {
+    // A passive bass at full interface gain peaks around 0.1. Dug in that
+    // hard, full sensitivity opens a 100 Hz filter about three octaves, so
+    // the 8th harmonic comes through within 20 dB of its dry level.
+    let open = direct_brightness(1.0, 0.1);
+    let closed = direct_brightness(0.0, 0.1);
+    assert!(open > 0.1, "8th harmonic at {open} of its dry level");
+    assert!(closed < 0.01, "closed filter lets {closed} through");
+}

@@ -4,7 +4,7 @@
 use crate::fixed_list::FixedList;
 use crate::ladder::LadderFilter;
 use crate::noise_gate::NoiseGate;
-use crate::param::{Octave, Param, Waveshape};
+use crate::param::{Octave, Param, SubWaveshape, Waveshape};
 use crate::pitch::midi_to_hz;
 use crate::smoothed::{Smoothed, one_pole_coefficient};
 use crate::tracker::DetectedNote;
@@ -55,6 +55,7 @@ pub struct TrackedLayer {
     osc2_tuning: Osc2Tuning,
     osc_mix: Smoothed,
     sub_level: Smoothed,
+    sub_waveshape: Smoothed,
     log2_cutoff: Smoothed,
     resonance: Smoothed,
     envelope_amount: Smoothed,
@@ -76,6 +77,8 @@ struct VoiceSettings {
     /// 0 is oscillator 1 alone, 1 is oscillator 2 alone.
     osc_mix: f32,
     sub_level: f32,
+    /// 0 is a sine sub, 1 a square one.
+    sub_square: f32,
     log2_cutoff: f32,
     resonance: f32,
     /// Octaves a full-strength filter envelope opens the filter.
@@ -106,6 +109,7 @@ impl TrackedLayer {
             osc2_tuning: Osc2Tuning::new(sample_rate),
             osc_mix: Smoothed::new(Param::TrackedOscMix.default_value(), sample_rate),
             sub_level: Smoothed::new(Param::TrackedSubLevel.default_value(), sample_rate),
+            sub_waveshape: Smoothed::new(Param::TrackedSubWaveshape.default_value(), sample_rate),
             // Smoothed in octaves so sweeps sound even across the range.
             log2_cutoff: Smoothed::new(Param::TrackedCutoff.default_value().log2(), sample_rate),
             resonance: Smoothed::new(Param::TrackedResonance.default_value(), sample_rate),
@@ -140,6 +144,9 @@ impl TrackedLayer {
             Param::TrackedOsc2Detune => self.osc2_tuning.set_detune(value),
             Param::TrackedOscMix => self.osc_mix.set_target(value),
             Param::TrackedSubLevel => self.sub_level.set_target(value),
+            Param::TrackedSubWaveshape => self
+                .sub_waveshape
+                .set_target(SubWaveshape::from_value(value).value()),
             Param::TrackedLevel => self.level.set_target(value),
             Param::TrackedCutoff => self.log2_cutoff.set_target(value.log2()),
             Param::TrackedResonance => self.resonance.set_target(value),
@@ -260,6 +267,7 @@ impl TrackedLayer {
             osc2_ratio: self.osc2_tuning.next_ratio(),
             osc_mix: self.osc_mix.next(),
             sub_level: self.sub_level.next(),
+            sub_square: self.sub_waveshape.next(),
             log2_cutoff: self.log2_cutoff.next(),
             resonance: self.resonance.next(),
             envelope_octaves: ENVELOPE_OCTAVES * self.envelope_amount.next(),
@@ -505,7 +513,7 @@ impl Voice {
         let osc2 = self
             .osc2
             .process(dt * settings.osc2_ratio, settings.osc2_square);
-        let sub = self.sub.process(0.5 * dt, 1.0);
+        let sub = self.sub.sine_or_square(0.5 * dt, settings.sub_square);
         let oscillators = osc1 + (osc2 - osc1) * settings.osc_mix;
         let mix = (oscillators + settings.sub_level * sub) / (1.0 + settings.sub_level);
         let envelope = self.envelope.process(settings.envelope_decay);
@@ -639,6 +647,14 @@ impl Oscillator {
             self.phase -= 1.0;
         }
         saw + (pulse - saw) * square
+    }
+
+    /// `square` mixes sine (0) to square (1). The sine is in phase with the
+    /// square, so blending between them never cancels.
+    fn sine_or_square(&mut self, dt: f32, square: f32) -> f32 {
+        let sine = (std::f32::consts::TAU * self.phase).sin();
+        let pulse = self.process(dt, 1.0);
+        sine + (pulse - sine) * square
     }
 }
 

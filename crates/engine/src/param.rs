@@ -2,7 +2,8 @@ use std::ops::RangeInclusive;
 
 /// A sound parameter the engine accepts changes to. Levels are linear gains;
 /// drive, resonance and envelope sensitivity are 0..=1; cutoff is in Hz;
-/// a waveshape is 0 (saw) or 1 (square); an octave is −1, 0 or +1; detune
+/// a waveshape is 0 (saw) or 1 (square), and the sub-oscillator's 0 (sine)
+/// or 1 (square); an octave is −1, 0 or +1; detune
 /// is in cents; a decay or a glide is in seconds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Param {
@@ -21,6 +22,7 @@ pub enum Param {
     /// oscillator 2 alone.
     TrackedOscMix,
     TrackedSubLevel,
+    TrackedSubWaveshape,
     TrackedCutoff,
     TrackedResonance,
     TrackedFilterEnvelopeAmount,
@@ -34,7 +36,7 @@ pub enum Param {
 
 impl Param {
     /// Every parameter, in declaration order, so `ALL[p.index()] == p`.
-    pub const ALL: [Param; 20] = [
+    pub const ALL: [Param; 21] = [
         Param::DryLevel,
         Param::OutputLevel,
         Param::DirectDrive,
@@ -48,6 +50,7 @@ impl Param {
         Param::TrackedOsc2Detune,
         Param::TrackedOscMix,
         Param::TrackedSubLevel,
+        Param::TrackedSubWaveshape,
         Param::TrackedCutoff,
         Param::TrackedResonance,
         Param::TrackedFilterEnvelopeAmount,
@@ -89,7 +92,7 @@ impl Param {
                 Amount,
                 0.0,
                 1.0,
-                0.5,
+                0.1,
             ),
             // Off until turned up (or a patch sets it), so the dry signal
             // alone is what a fresh engine plays.
@@ -149,6 +152,16 @@ impl Param {
                 "sub_level",
                 "Sub-oscillator level",
                 Amount,
+                0.0,
+                1.0,
+                0.0,
+            ),
+            // A sine unless a patch asks for the buzzier square.
+            Param::TrackedSubWaveshape => (
+                Tracked,
+                "sub_waveshape",
+                "Sub-oscillator",
+                SubWaveshape,
                 0.0,
                 1.0,
                 0.0,
@@ -310,6 +323,8 @@ pub enum Format {
     Amount,
     /// 0 is saw, 1 is square.
     Waveshape,
+    /// 0 is sine, 1 is square.
+    SubWaveshape,
     /// Whole octaves.
     Octave,
     Cents,
@@ -336,6 +351,7 @@ impl Format {
             Format::Frequency => format!("{value:.0} Hz"),
             Format::Amount => format!("{:.0} %", value * 100.0),
             Format::Waveshape => Waveshape::from_value(value).label().into(),
+            Format::SubWaveshape => SubWaveshape::from_value(value).label().into(),
             Format::Octave => Octave::from_value(value).label().into(),
             Format::Cents => format!("{value:+.0} ¢"),
             Format::Duration { .. } => format!("{:.0} ms", value * 1000.0),
@@ -397,6 +413,56 @@ impl Waveshape {
         match self {
             Waveshape::Saw => "Saw",
             Waveshape::Square => "Square",
+        }
+    }
+}
+
+/// The sub-oscillator's waveshape. Its parameter value is 0 (sine) or 1
+/// (square); `from_value` is the only reading of that value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum SubWaveshape {
+    Sine,
+    Square,
+}
+
+impl SubWaveshape {
+    /// In switch order.
+    pub const ALL: [SubWaveshape; 2] = [SubWaveshape::Sine, SubWaveshape::Square];
+
+    /// The shape a parameter value plays: square from one half up.
+    pub fn from_value(value: f32) -> SubWaveshape {
+        if value < 0.5 {
+            SubWaveshape::Sine
+        } else {
+            SubWaveshape::Square
+        }
+    }
+
+    pub const fn value(self) -> f32 {
+        match self {
+            SubWaveshape::Sine => 0.0,
+            SubWaveshape::Square => 1.0,
+        }
+    }
+
+    /// The name in a patch file.
+    pub const fn name(self) -> &'static str {
+        match self {
+            SubWaveshape::Sine => "sine",
+            SubWaveshape::Square => "square",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<SubWaveshape> {
+        SubWaveshape::ALL
+            .into_iter()
+            .find(|shape| shape.name() == name)
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            SubWaveshape::Sine => "Sine",
+            SubWaveshape::Square => "Square",
         }
     }
 }

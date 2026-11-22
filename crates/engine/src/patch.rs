@@ -1,7 +1,8 @@
 //! The patch record: a named, versioned set of every sound parameter, and its
 //! human-readable file format.
 
-use crate::{Format, Octave, Param, Waveshape};
+use crate::direct::ENVELOPE_OCTAVES;
+use crate::{Format, Octave, Param, SubWaveshape, Waveshape};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Patch {
@@ -47,8 +48,9 @@ impl Patch {
 
     /// Reads a patch file. Missing, unknown, or unreadable fields fall back to
     /// defaults, so files from older and newer versions load; only text that
-    /// is not TOML at all is an error. `fallback_name` names a file without
-    /// a `name`.
+    /// is not TOML at all is an error. Files from older versions are brought
+    /// up to date so they sound as they did (`upgrade_from_v1`).
+    /// `fallback_name` names a file without a `name`.
     pub fn from_toml(text: &str, fallback_name: &str) -> Result<Patch, String> {
         let file: toml::Table = toml::from_str(text).map_err(|err| err.message().to_string())?;
         let name = file
@@ -67,12 +69,32 @@ impl Patch {
                 patch.set(param, value);
             }
         }
+        // A file without a version predates versioning: version 1.
+        let version = file.get("version").and_then(toml::Value::as_integer);
+        if version.unwrap_or(1) < 2 {
+            patch.upgrade_from_v1();
+        }
         Ok(patch)
+    }
+
+    /// Version 2 opened the direct layer's envelope five times wider per unit
+    /// of sensitivity, and added the sub-oscillator waveshape with a sine by
+    /// default where version 1 always played a square.
+    fn upgrade_from_v1(&mut self) {
+        let sensitivity = Param::DirectEnvelopeSensitivity;
+        self.set(
+            sensitivity,
+            self.get(sensitivity) / (ENVELOPE_OCTAVES / V1_ENVELOPE_OCTAVES),
+        );
+        self.set(Param::TrackedSubWaveshape, SubWaveshape::Square.value());
     }
 }
 
+/// The direct layer envelope's octaves per unit of level in version 1.
+const V1_ENVELOPE_OCTAVES: f32 = 8.0;
+
 /// Bumped when the meaning of a field changes. Files of any version load.
-pub const PATCH_VERSION: u32 = 1;
+pub const PATCH_VERSION: u32 = 2;
 
 /// Where a param lives in the file: its section and key.
 fn field(param: Param) -> (&'static str, &'static str) {
@@ -85,6 +107,7 @@ fn field(param: Param) -> (&'static str, &'static str) {
 fn encode(param: Param, value: f32) -> toml::Value {
     match param.info().format {
         Format::Waveshape => Waveshape::from_value(value).name().into(),
+        Format::SubWaveshape => SubWaveshape::from_value(value).name().into(),
         Format::Octave => i64::from(Octave::from_value(value).octaves()).into(),
         // The shortest decimal that reads back as the same f32 (0.37, not
         // 0.3700000047683716).
@@ -101,6 +124,7 @@ fn decode(param: Param, value: &toml::Value) -> Option<f32> {
     let number = match value {
         toml::Value::String(name) => match param.info().format {
             Format::Waveshape => Waveshape::from_name(name)?.value().into(),
+            Format::SubWaveshape => SubWaveshape::from_name(name)?.value().into(),
             _ => return None,
         },
         toml::Value::Integer(n) => *n as f64,

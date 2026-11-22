@@ -1,13 +1,13 @@
 # Squelchy and resonant: high resonance and a fast, deep filter envelope
 # that bwows on every pick.
-version = 1
+version = 2
 name = "Squelch"
 
 [direct]
 drive = 0.7
 cutoff_hz = 250.0
 resonance = 0.75
-envelope_sensitivity = 0.9
+envelope_sensitivity = 0.18
 level = 0.3
 
 [tracked]
@@ -17,6 +17,7 @@ osc2_octave = 0
 osc2_detune_cents = 6.0
 osc_mix = 0.0
 sub_level = 0.2
+sub_waveshape = "square"
 cutoff_hz = 150.0
 resonance = 0.85
 filter_envelope_amount = 0.9

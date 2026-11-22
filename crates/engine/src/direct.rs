@@ -17,8 +17,10 @@ const MAX_DRIVE_GAIN: f32 = 64.0;
 const DRIVE_REFERENCE_PEAK: f32 = 0.05;
 
 /// Octaves the cutoff opens per unit of dry signal level at full envelope
-/// sensitivity. A hard-played bass peaks around 0.5, so about 4 octaves.
-const ENVELOPE_OCTAVES: f32 = 8.0;
+/// sensitivity. A passive bass at full interface gain peaks around 0.1 when
+/// dug in, so about 4 octaves. (Patch version 1 had 8, tuned for peaks
+/// around 0.5; `Patch::from_toml` rescales v1 sensitivities to match.)
+pub(crate) const ENVELOPE_OCTAVES: f32 = 40.0;
 
 const ENVELOPE_ATTACK_SECONDS: f32 = 0.001;
 const ENVELOPE_RELEASE_SECONDS: f32 = 0.1;

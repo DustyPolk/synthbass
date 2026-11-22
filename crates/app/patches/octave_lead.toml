@@ -1,13 +1,13 @@
 # Octave-up lead: a saw with a square an octave above, filter open and
 # resonant, glide between notes. For melodies and fills high on the neck.
-version = 1
+version = 2
 name = "Octave Lead"
 
 [direct]
 drive = 0.6
 cutoff_hz = 900.0
 resonance = 0.3
-envelope_sensitivity = 0.5
+envelope_sensitivity = 0.1
 level = 0.25
 
 [tracked]
@@ -17,6 +17,7 @@ osc2_octave = 1
 osc2_detune_cents = 5.0
 osc_mix = 0.45
 sub_level = 0.0
+sub_waveshape = "square"
 cutoff_hz = 1200.0
 resonance = 0.4
 filter_envelope_amount = 0.5

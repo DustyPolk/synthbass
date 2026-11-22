@@ -21,7 +21,9 @@ pub use fixed_list::FixedList;
 pub use limiter::LIMITER_CEILING;
 use limiter::Limiter;
 pub use noise_gate::NoiseGate;
-pub use param::{Format, LEVEL_FLOOR_DB, Octave, Param, ParamInfo, Section, Waveshape, gain_to_db};
+pub use param::{
+    Format, LEVEL_FLOOR_DB, Octave, Param, ParamInfo, Section, SubWaveshape, Waveshape, gain_to_db,
+};
 pub use patch::{PATCH_VERSION, Patch};
 pub use pitch::{hz_to_midi, midi_to_hz};
 use readout::PeakMeter;
@@ -87,6 +89,7 @@ impl Engine {
             | Param::TrackedOsc2Detune
             | Param::TrackedOscMix
             | Param::TrackedSubLevel
+            | Param::TrackedSubWaveshape
             | Param::TrackedCutoff
             | Param::TrackedResonance
             | Param::TrackedFilterEnvelopeAmount

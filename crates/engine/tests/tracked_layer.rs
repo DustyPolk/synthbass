@@ -4,7 +4,7 @@
 mod common;
 
 use common::*;
-use synthbass_engine::{Engine, NoiseGate, Param, VoiceReading};
+use synthbass_engine::{Engine, NoiseGate, Param, SubWaveshape, VoiceReading};
 
 const A1: f32 = 33.0;
 
@@ -407,4 +407,32 @@ fn a_held_note_keeps_its_voice_through_any_nearby_attack() {
         lost.len(),
         lost.join("\n")
     );
+}
+
+/// The sub-oscillator's own third harmonic against oscillator 1's
+/// fundamental, for a held A1 with an open filter and oscillator 1 alone.
+fn sub_third_harmonic(shape: SubWaveshape) -> f32 {
+    let note = hz(A1);
+    let mut engine = tracked_only();
+    engine.set_param(Param::TrackedOscMix, 0.0);
+    engine.set_param(Param::TrackedSubLevel, 1.0);
+    engine.set_param(Param::TrackedSubWaveshape, shape.value());
+    engine.set_param(Param::TrackedCutoff, 8_000.0);
+    engine.set_param(Param::TrackedFilterEnvelopeAmount, 0.0);
+    let dry = after_settling(bass_tone(note, 0.4, 1.0, 1.0));
+    let out = render(&mut engine, &dry, &[128]).left;
+    let held = &out[(0.5 * SAMPLE_RATE) as usize..(1.0 * SAMPLE_RATE) as usize];
+    amplitude_at(held, 1.5 * note) / amplitude_at(held, note)
+}
+
+#[test]
+fn a_sine_sub_oscillator_adds_no_harmonics_of_its_own() {
+    // An octave down, the sub's odd harmonics land between oscillator 1's:
+    // its third sits at 1.5 times the note, where no oscillator plays. With
+    // a sine, all that is left there is the saturating filter's
+    // intermodulation of the sub with oscillator 1.
+    let square = sub_third_harmonic(SubWaveshape::Square);
+    let sine = sub_third_harmonic(SubWaveshape::Sine);
+    assert!(square > 0.1, "a square sub's third harmonic: {square}");
+    assert!(sine < 0.05 * square, "sine {sine} against square {square}");
 }

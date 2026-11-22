@@ -7,8 +7,8 @@ use std::time::Duration;
 use eframe::egui;
 use rtrb::Consumer;
 use synthbass_engine::{
-    Format, LEVEL_FLOOR_DB, MAX_VOICES, NoiseGate, Octave, Param, Readout, Section, TunerReading,
-    Waveshape, gain_to_db,
+    Format, LEVEL_FLOOR_DB, MAX_VOICES, NoiseGate, Octave, Param, Readout, Section, SubWaveshape,
+    TunerReading, Waveshape, gain_to_db,
 };
 
 use crate::audio::{SharedNoiseGate, SharedPatch};
@@ -112,6 +112,12 @@ impl SynthbassApp {
                     Waveshape::from_value(v).value()
                 })
             }
+            Format::SubWaveshape => self.switch(
+                ui,
+                param,
+                &SubWaveshape::ALL.map(SubWaveshape::value),
+                |v| SubWaveshape::from_value(v).value(),
+            ),
             Format::Octave => self.switch(ui, param, &Octave::ALL.map(Octave::value), |v| {
                 Octave::from_value(v).value()
             }),
