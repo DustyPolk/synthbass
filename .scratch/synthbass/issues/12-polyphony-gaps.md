@@ -4,7 +4,7 @@
 
 **Blocked by:** 07 (Four-voice polyphony), 08 (Slides, bends and glide) — both reshape the tracker, so they run in sequence
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Decisions already made (orchestrator, for the bassist):**
 - Thirds 30.60 s (G1+B1): treat the take as unusable (weakly fretted, open strings ringing louder). Remove that event from `double-stop-thirds.notes` with a comment saying why, rather than tuning the tracker to it.
