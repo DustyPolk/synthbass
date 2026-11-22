@@ -121,6 +121,48 @@ fn double_stop_tenths_play_as_two_voices() {
     check("double-stop-tenths", DOUBLE_STOPS, &[]);
 }
 
+/// Times (seconds) at which a note the tracker already reports counts a
+/// repick, away from any onset in the clip's notes: beating between the
+/// strings of a held chord read as picks, retriggering the filter envelope.
+fn misfired_repicks(name: &str) -> Vec<f32> {
+    let clip = load_clip(&clip_path(name));
+    let run = run_clip(&clip, &[128]);
+    let tol = clip.expected.timing_tolerance;
+    let near_onset = |t: f32| {
+        clip.expected
+            .events
+            .iter()
+            .any(|e| t > e.onset - tol && t < e.onset + tol)
+    };
+    let mut seen = std::collections::HashMap::<u32, u32>::new();
+    let mut misfires = Vec::new();
+    for (t, readout) in &run.readouts {
+        for n in readout.notes.iter() {
+            let before = seen.insert(n.id, n.repicks).unwrap_or(0);
+            if n.repicks > before && !near_onset(*t) {
+                misfires.push(*t);
+            }
+        }
+    }
+    misfires
+}
+
+#[test]
+fn held_double_stops_are_not_picked_again() {
+    for name in [
+        "double-stop-thirds",
+        "double-stop-tenths",
+        "double-stop-sevenths",
+    ] {
+        let misfires = misfired_repicks(name);
+        assert!(
+            misfires.is_empty(),
+            "{name}: {} repicks away from onsets: {misfires:.2?}",
+            misfires.len()
+        );
+    }
+}
+
 #[test]
 #[ignore]
 fn print_scores() {

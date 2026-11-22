@@ -2,10 +2,17 @@
 # (recorded as an attempt at tenths with the upper note on the D string instead of the G string).
 # Drafted from the recording (envelope onsets + Goertzel harmonic spectrum); confirmed by the bassist.
 # Low notes have a weak fundamental (E1 about 7 dB under its 2nd harmonic).
+# Each upper note is plucked 0.3-0.5 s after its low note (the dry peak jumps and the
+# upper note's partials appear only then), so each chord is two events: the low note
+# alone, then both (ticket 12).
 timing_tolerance 0.15
 cents_tolerance 20
 
-2.48 7.72 E1 D#2
-11.02 15.16 G1 F#2
-16.28 20.76 A1 G#2
-22.04 27.24 G1 F#2
+2.48 2.79 E1
+2.79 7.72 E1 D#2
+11.02 11.41 G1
+11.41 15.16 G1 F#2
+16.28 16.73 A1
+16.73 20.76 A1 G#2
+22.04 22.50 G1
+22.50 27.24 G1 F#2

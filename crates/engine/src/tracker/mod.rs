@@ -92,10 +92,15 @@ const REPICK_RISE: f32 = 1.3;
 /// Right after the dry signal's peak jumps (a pick somewhere), a smaller
 /// rise is enough, which finds the repick sooner.
 const REPICK_RISE_AFTER_PICK: f32 = 1.1;
-/// The dry signal's peak jumping by this factor within `PICK_HOPS` hops is a
-/// pick; a picked note's level counts as rising for `PICK_WINDOW_SECONDS`.
+/// The dry signal's peak rising within `PICK_HOPS` hops to this factor above
+/// its highest level over the `PICK_LOOKBACK_HOPS` before is a pick; a picked
+/// note's level counts as rising for `PICK_WINDOW_SECONDS`. Two strings
+/// sounding together beat at their fundamentals' difference (12–17 Hz for low
+/// thirds): the peak sags and recovers every beat, so the lookback spans more
+/// than one beat (≈ 130 ms at 1.3 ms hops) and a recovery is not a pick.
 const PICK_JUMP: f32 = 1.2;
 const PICK_HOPS: usize = 8;
+const PICK_LOOKBACK_HOPS: usize = 96;
 const PICK_WINDOW_SECONDS: f32 = 0.04;
 /// A sounding note whose pitch jumps this far (semitones) in one hop right
 /// after a pick was picked again.
@@ -129,8 +134,8 @@ pub struct Tracker {
     release_hops: u32,
     tuner_settle_hops: u32,
     repick_holdoff_hops: u32,
-    /// The pick meter's level at each of the last `PICK_HOPS` hops.
-    pick_history: [f32; PICK_HOPS],
+    /// The pick meter's level at each of the last `PICK_LOOKBACK_HOPS` hops.
+    pick_history: [f32; PICK_LOOKBACK_HOPS],
     pick_history_index: usize,
     hops_since_pick: u32,
     pick_window_hops: u32,
@@ -155,7 +160,7 @@ impl Tracker {
             release_hops: hops(RELEASE_SECONDS),
             tuner_settle_hops: hops(TUNER_SETTLE_SECONDS),
             repick_holdoff_hops: hops(REPICK_HOLDOFF_SECONDS),
-            pick_history: [0.0; PICK_HOPS],
+            pick_history: [0.0; PICK_LOOKBACK_HOPS],
             pick_history_index: 0,
             hops_since_pick: u32::MAX,
             pick_window_hops: hops(PICK_WINDOW_SECONDS),
@@ -201,15 +206,20 @@ impl Tracker {
         let mut matched = [false; MAX_DETECTED_NOTES];
 
         let pick_level = self.pick_meter.level();
-        let oldest = &mut self.pick_history[self.pick_history_index];
-        self.hops_since_pick = if pick_level > PICK_JUMP * *oldest && pick_level >= self.gate {
+        // The ring runs oldest first from `pick_history_index`; the levels at
+        // least `PICK_HOPS` hops old are the ones a pick must rise above.
+        let before = (0..=PICK_LOOKBACK_HOPS - PICK_HOPS)
+            .map(|age| self.pick_history[(self.pick_history_index + age) % PICK_LOOKBACK_HOPS])
+            .fold(0.0, f32::max);
+        self.hops_since_pick = if pick_level > PICK_JUMP * before && pick_level >= self.gate {
             0
         } else {
             self.hops_since_pick.saturating_add(1)
         };
-        *oldest = pick_level;
-        self.pick_history_index = (self.pick_history_index + 1) % PICK_HOPS;
-        let repick_rise = if self.hops_since_pick <= self.pick_window_hops {
+        self.pick_history[self.pick_history_index] = pick_level;
+        self.pick_history_index = (self.pick_history_index + 1) % PICK_LOOKBACK_HOPS;
+        let picked = self.hops_since_pick <= self.pick_window_hops;
+        let repick_rise = if picked {
             REPICK_RISE_AFTER_PICK
         } else {
             REPICK_RISE
@@ -242,7 +252,8 @@ impl Tracker {
                         slot.hops_since_onset += 1;
                         if slot.hops_since_onset <= self.repick_holdoff_hops {
                             slot.valley = slot.note.level;
-                        } else if slot.note.level > repick_rise * slot.valley || jumped {
+                        } else if (picked && slot.note.level > repick_rise * slot.valley) || jumped
+                        {
                             slot.note.repicks += 1;
                             slot.note.onset_strength = self.pick_meter.level();
                             slot.hops_since_onset = 0;
