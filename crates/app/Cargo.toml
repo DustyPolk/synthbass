@@ -10,3 +10,5 @@ synthbass-engine = { path = "../engine" }
 jack = "0.14"
 eframe = "0.37"
 rtrb = "0.4"
+hound = "3.5"
+ctrlc = "3.4"
