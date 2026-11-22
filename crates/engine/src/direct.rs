@@ -5,7 +5,7 @@
 use crate::ladder::LadderFilter;
 use crate::noise_gate::NoiseGate;
 use crate::param::Param;
-use crate::smoothed::Smoothed;
+use crate::smoothed::{Smoothed, one_pole_coefficient};
 
 /// Pre-gain into the waveshaper at full drive (+36 dB).
 const MAX_DRIVE_GAIN: f32 = 64.0;
@@ -91,8 +91,8 @@ impl Envelope {
     fn new(sample_rate: f32) -> Self {
         Envelope {
             level: 0.0,
-            attack: 1.0 - (-1.0 / (ENVELOPE_ATTACK_SECONDS * sample_rate)).exp(),
-            release: (-1.0 / (ENVELOPE_RELEASE_SECONDS * sample_rate)).exp(),
+            attack: 1.0 - one_pole_coefficient(ENVELOPE_ATTACK_SECONDS, sample_rate),
+            release: one_pole_coefficient(ENVELOPE_RELEASE_SECONDS, sample_rate),
         }
     }
 
@@ -133,8 +133,8 @@ impl Gate {
             threshold: NoiseGate::default().threshold(),
             open: false,
             gain: 0.0,
-            attack: (-1.0 / (GATE_ATTACK_SECONDS * sample_rate)).exp(),
-            release: (-1.0 / (GATE_RELEASE_SECONDS * sample_rate)).exp(),
+            attack: one_pole_coefficient(GATE_ATTACK_SECONDS, sample_rate),
+            release: one_pole_coefficient(GATE_RELEASE_SECONDS, sample_rate),
         }
     }
 

@@ -6,6 +6,7 @@
 //! partial agrees on, not from which band is loudest.
 
 use crate::pitch::{hz_to_midi, midi_to_hz};
+use crate::smoothed::one_pole_coefficient;
 
 /// Lowest and highest band centres as MIDI notes: D1 (below low E) to G5
 /// (twice the top of the G string, so the sieve sees its harmonics).
@@ -118,7 +119,7 @@ impl Bank {
             ring_len,
             pos: 0,
             recent_index: 0,
-            slow_coefficient: 1.0 - (-1.0 / (SLOW_IF_SECONDS * rate)).exp(),
+            slow_coefficient: 1.0 - one_pole_coefficient(SLOW_IF_SECONDS, rate),
         }
     }
 

@@ -1,3 +1,5 @@
+use crate::smoothed::one_pole_coefficient;
+
 /// Hard limiter at the end of the chain: output never exceeds the ceiling.
 ///
 /// Gain drops instantly to whatever keeps the current sample under the
@@ -16,7 +18,7 @@ impl Limiter {
     pub fn new(sample_rate: f32) -> Self {
         Limiter {
             gain: 1.0,
-            release: (-1.0 / (RELEASE_SECONDS * sample_rate)).exp(),
+            release: one_pole_coefficient(RELEASE_SECONDS, sample_rate),
         }
     }
 

@@ -1,3 +1,4 @@
+use crate::smoothed::one_pole_coefficient;
 use crate::tracked::Voices;
 use crate::tracker::DetectedNotes;
 
@@ -70,7 +71,7 @@ impl PeakMeter {
     pub fn new(sample_rate: f32) -> Self {
         PeakMeter {
             level: 0.0,
-            fall: (-1.0 / (FALL_TIME_CONSTANT_SECONDS * sample_rate)).exp(),
+            fall: one_pole_coefficient(FALL_TIME_CONSTANT_SECONDS, sample_rate),
         }
     }
 

@@ -7,7 +7,7 @@ use crate::ladder::LadderFilter;
 use crate::noise_gate::NoiseGate;
 use crate::param::{Octave, Param, Waveshape};
 use crate::pitch::midi_to_hz;
-use crate::smoothed::Smoothed;
+use crate::smoothed::{Smoothed, one_pole_coefficient};
 use crate::tracker::DetectedNote;
 
 /// The most voices that sound at once.
@@ -407,7 +407,6 @@ struct Voice {
 impl Voice {
     /// `index` makes each voice's oscillator 2 phases differ.
     fn new(sample_rate: f32, index: u32) -> Self {
-        let coefficient = |seconds: f32| (-1.0 / (seconds * sample_rate)).exp();
         Voice {
             id: 0,
             note_id: None,
@@ -418,8 +417,8 @@ impl Voice {
             glide_offset: 0.0,
             loudness: 0.0,
             target_loudness: 0.0,
-            pitch_coefficient: coefficient(PITCH_SMOOTHING_SECONDS),
-            loudness_coefficient: coefficient(LOUDNESS_SMOOTHING_SECONDS),
+            pitch_coefficient: one_pole_coefficient(PITCH_SMOOTHING_SECONDS, sample_rate),
+            loudness_coefficient: one_pole_coefficient(LOUDNESS_SMOOTHING_SECONDS, sample_rate),
             osc1: Oscillator::default(),
             osc2: Oscillator::default(),
             sub: Oscillator::default(),
