@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 
 use synthbass_engine::Patch;
 
+use crate::atomic_file;
+
 /// The built-in patch files. The first is what a first launch plays.
 const BUILT_IN: [(&str, &str); 6] = [
     ("pluck", include_str!("../patches/pluck.toml")),
@@ -151,7 +153,7 @@ impl PatchLibrary {
             Some(index) => self.user[index].path.clone(),
             None => self.free_path(dir, &patch.name),
         };
-        write_atomically(&path, &patch.to_toml())
+        atomic_file::write(&path, &patch.to_toml())
             .map_err(|err| PatchError::Io(format!("{}: {err}", path.display())))?;
         let user = UserPatch {
             patch: patch.clone(),
@@ -215,16 +217,6 @@ fn file_stem(name: &str) -> String {
     } else {
         stem
     }
-}
-
-/// Temp file, then rename, so a crash mid-write never leaves half a patch.
-fn write_atomically(path: &Path, text: &str) -> std::io::Result<()> {
-    if let Some(dir) = path.parent() {
-        std::fs::create_dir_all(dir)?;
-    }
-    let temp = path.with_extension("toml.tmp");
-    std::fs::write(&temp, text)?;
-    std::fs::rename(&temp, path)
 }
 
 /// `~/.config/synthbass/patches`, or `None` if the system has no config

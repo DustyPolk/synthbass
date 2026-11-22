@@ -7,6 +7,7 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
 use synthbass_engine::NoiseGate;
 
+use crate::atomic_file;
 use crate::ports::Routing;
 
 /// Everything in the settings file. Every field has a default, so a file
@@ -94,13 +95,8 @@ impl Settings {
     /// Writes the file atomically (temp file, then rename), so a crash mid-write
     /// never leaves a half-written file behind.
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir)?;
-        }
         let text = toml::to_string_pretty(self).map_err(std::io::Error::other)?;
-        let temp = path.with_extension("toml.tmp");
-        std::fs::write(&temp, text)?;
-        std::fs::rename(&temp, path)
+        atomic_file::write(path, &text)
     }
 }
 
