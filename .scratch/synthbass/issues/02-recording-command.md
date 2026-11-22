@@ -4,7 +4,7 @@
 
 **Blocked by:** 01 (Dry signal passthrough)
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Context budget:** finish within one fresh context, well under 150K tokens. Read `GLOSSARY.md`, the spec, and the relevant ADRs; skip anything unrelated. Keep test and build output terse (filter to failures).
 
