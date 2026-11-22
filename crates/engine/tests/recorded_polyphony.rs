@@ -81,11 +81,10 @@ fn double_stop_thirds_play_as_two_voices() {
     check(
         "double-stop-thirds",
         DOUBLE_STOPS,
-        &[
-            (15.65, "F2 takes about 0.9 s to settle beside D2"),
-            (32.20, "short chord: leftover notes of the previous one"),
-            (33.00, "short chord: leftover notes of the previous one"),
-        ],
+        &[(
+            15.65,
+            "F2 falls under the noise gate at 21.2 s, 5 s before the event ends",
+        )],
     );
 }
 

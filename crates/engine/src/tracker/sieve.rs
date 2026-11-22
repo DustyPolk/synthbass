@@ -95,6 +95,9 @@ const FUSING_INTERVALS: [f32; 3] = [7.0, 12.0, 19.0];
 /// A sparse candidate up to this harmonic of a sounding note is what is
 /// left of that note.
 const REMNANT_HARMONICS: usize = 4;
+/// A still note whose refined pitch lies this far (semitones) from the
+/// partials that made it is not the note they belong to.
+const STRAYED: f32 = 1.0;
 /// A note weaker than this fraction of the strongest one is a ghost.
 const RELATIVE_FLOOR: f32 = 0.15;
 
@@ -248,18 +251,28 @@ impl Sieve {
                 }
             }
             let periodicity = history.periodicity(f0, bank.rate());
-            let steady = support
+            let settled_partials = support
                 .harmonic
                 .iter()
                 .flatten()
                 .filter(|&&p| self.settled[self.partials[p].band])
-                .count()
-                >= STEADY_PARTIALS
+                .count();
+            let steady = settled_partials >= STEADY_PARTIALS
                 // A moving note's partials lag behind it in bands that still
                 // look settled.
                 && !(self.moving_hops > 0 && self.on_moving_span(hz_to_midi(f0)));
+            // Beside a louder note a sounding note's periodicity is swamped
+            // and one of its bands can come unsettled for a moment as they
+            // beat; dropping it then lets its upper harmonics start a note of
+            // their own (a third's D#2 leaving A#3). One settled partial is
+            // enough to carry it on.
+            let carried_on = count > 0
+                && settled_partials > 0
+                && sounding
+                    .iter()
+                    .any(|&pitch| (pitch - hz_to_midi(f0)).abs() <= CONTINUES);
             if !periodicity.judged
-                || (periodicity.clarity < MIN_CLARITY && !steady)
+                || (periodicity.clarity < MIN_CLARITY && !steady && !carried_on)
                 || self.outranked_from_below(bank, history, f0, periodicity.clarity)
             {
                 continue;
@@ -283,7 +296,14 @@ impl Sieve {
                 self.moving_pitch = pitch;
                 moving = true;
             }
-            if duplicate || level < gate {
+            // A candidate whose pitch came from a periodicity estimate more
+            // than a semitone off its own partials took the period of a note
+            // beside it: between a third's fundamentals a band hears both and
+            // holds a partial halfway, nobody's note. Right after a pick the
+            // disturbed analysis of a sounding note jumps like this too, and
+            // that jump is how its repick is found.
+            let strayed = !picked && !refined.moving && (pitch - hz_to_midi(f0)).abs() > STRAYED;
+            if duplicate || level < gate || strayed {
                 continue;
             }
             // The periodicity search spans ±1.5 semitones and can lock onto

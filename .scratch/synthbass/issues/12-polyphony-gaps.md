@@ -15,7 +15,7 @@
 
 - [ ] Repicks no longer misfire on sustained double stops: beating between two strings reads as a level rise, so the tracker reports ~129 repicks on double-stop-thirds and the filter envelope retriggers on held chords (audible). Highest priority.
 - [ ] Attack ghosts that ticket 07's chord tuning added to single notes are gone: palm-mutes 11.06, 12.26, 12.84 s (extra 0.23–0.31) and chromatic-run 6.67 s (coverage 0.82, extra 0.27); also chromatic 4.21 and 9.38 s and palm-mutes 11.97 s (extra 0.10–0.11)
-- [ ] Short chord changes don't carry leftover notes: double-stop-thirds 32.20 and 33.00 s (extra 0.26, 0.46)
+- [x] Short chord changes don't carry leftover notes: double-stop-thirds 32.20 and 33.00 s (extra 0.26, 0.46)
 - [ ] D2+F2 (thirds 15.65 s): F2 settles in well under 0.9 s (coverage 0.51)
 - [ ] Thirds 30.60 s (G1+B1): check the take first. The spectrum shows strong 41.6 and 55.2 Hz (open E and A ringing) with weak, off-pitch G1/B1; either fix the `.notes` file with the bassist or the tracker
 - [ ] open-strings 8.34 s: E1 rings on under A1 (the clip lets strings ring into the next). Decide whether the expectation should list E1 while it rings, then drop the exemption
