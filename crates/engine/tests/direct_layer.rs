@@ -66,15 +66,14 @@ fn direct_layer_level_at_zero_removes_its_contribution() {
 
 #[test]
 fn a_two_note_chord_stays_finite_bounded_and_rings_out_to_silence() {
-    // A major third (A1 + C#2) at full drive, resonance and sensitivity,
-    // with the output level low enough that the limiter stays out of it.
+    // A major third (A1 + C#2) at full drive, resonance and sensitivity.
+    // Drive is level-matched, so the limiter stays out of it at full output.
     // Silence first so the level settings settle before the chord.
     let mut dry = vec![0.0; 4_800];
     dry.extend(mix(&sine(55.0, 0.4, 2.0), &sine(69.3, 0.4, 2.0)));
     dry.extend(vec![0.0; 3 * 48_000]);
     let mut engine = direct_only();
     pathological(&mut engine);
-    engine.set_param(Param::OutputLevel, 0.1);
     let out = render(&mut engine, &dry, &[64]);
 
     assert!(out.left.iter().all(|s| s.is_finite()), "non-finite output");

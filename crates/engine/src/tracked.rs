@@ -376,6 +376,11 @@ const PITCH_SMOOTHING_SECONDS: f32 = 0.003;
 const LOUDNESS_SMOOTHING_SECONDS: f32 = 0.005;
 /// A released voice is silent, and free, once its loudness falls below this.
 const SILENT: f32 = 1e-5;
+/// Output gain of a voice at loudness 1. Loudness follows the note's peak,
+/// but a bass note's energy sits in a few strong partials while a filtered
+/// oscillator spreads it thin, so without this a voice at the tracked layer's
+/// full level plays several dB under the dry signal at its full level.
+const VOICE_GAIN: f32 = 2.4;
 
 struct Voice {
     id: u32,
@@ -509,7 +514,7 @@ impl Voice {
         self.filter
             .set_cutoff((settings.log2_cutoff + octaves).exp2());
         self.filter.set_resonance(settings.resonance);
-        self.filter.process(mix) * self.loudness
+        self.filter.process(mix) * self.loudness * VOICE_GAIN
     }
 
     /// Starts gliding from `pitch` to the voice's note.

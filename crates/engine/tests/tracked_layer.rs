@@ -238,7 +238,7 @@ fn dry_signal_direct_layer_and_tracked_layer_mix_by_their_levels() {
         render_with(0.0, 0.0, 0.7),
     ];
     for part in &parts {
-        assert!(peak(part) > 0.02, "every layer contributes");
+        assert!(peak(part) > 0.005, "every layer contributes");
     }
     let worst = (0..all.len())
         .map(|n| (all[n] - parts.iter().map(|p| p[n]).sum::<f32>()).abs())

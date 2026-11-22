@@ -10,6 +10,12 @@ use crate::smoothed::{Smoothed, one_pole_coefficient};
 /// Pre-gain into the waveshaper at full drive (+36 dB).
 const MAX_DRIVE_GAIN: f32 = 64.0;
 
+/// The dry signal peak the drive is level-matched at: a firmly played note
+/// from a passive bass into an interface at full gain peaks around here. A
+/// note this loud comes out of the waveshaper as loud as it went in at any
+/// drive, so drive changes the tone, not the level against the other layers.
+const DRIVE_REFERENCE_PEAK: f32 = 0.05;
+
 /// Octaves the cutoff opens per unit of dry signal level at full envelope
 /// sensitivity. A hard-played bass peaks around 0.5, so about 4 octaves.
 const ENVELOPE_OCTAVES: f32 = 8.0;
@@ -68,7 +74,8 @@ impl DirectLayer {
         self.filter
             .set_cutoff((self.log2_cutoff.next() + octaves).exp2());
         self.filter.set_resonance(self.resonance.next());
-        let driven = (dry * self.drive_gain.next()).tanh();
+        let drive_gain = self.drive_gain.next();
+        let driven = (dry * drive_gain).tanh() * drive_makeup(drive_gain);
         let gain = self.gate.process(envelope);
         self.filter.process(driven) * gain * self.level.next()
     }
@@ -77,6 +84,11 @@ impl DirectLayer {
 /// Drive 0..=1 maps exponentially to a pre-gain of 1..=64.
 fn drive_gain(drive: f32) -> f32 {
     MAX_DRIVE_GAIN.powf(drive)
+}
+
+/// Undoes the waveshaper's gain at `DRIVE_REFERENCE_PEAK`.
+fn drive_makeup(drive_gain: f32) -> f32 {
+    DRIVE_REFERENCE_PEAK / (drive_gain * DRIVE_REFERENCE_PEAK).tanh()
 }
 
 /// Follows the dry signal's level: fast attack so the filter opens on the
