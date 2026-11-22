@@ -40,6 +40,23 @@ fn a_tenth_plays_as_two_voices_at_their_pitches() {
 }
 
 #[test]
+fn five_notes_play_as_four_voices_dropping_the_quietest() {
+    let mut engine = engine();
+    let tones: Vec<Vec<f32>> = [
+        (28.0, 0.3),
+        (61.0, 0.25),
+        (63.0, 0.06),
+        (65.0, 0.22),
+        (67.0, 0.2),
+    ]
+    .iter()
+    .map(|&(note, amp)| bass_tone(hz(note), amp, 1.0, 0.6))
+    .collect();
+    render(&mut engine, &chord(&tones), &[128]);
+    assert_pitches(&voice_pitches(&engine), &[28.0, 61.0, 65.0, 67.0]);
+}
+
+#[test]
 #[ignore]
 fn explore_five() {
     for set in [

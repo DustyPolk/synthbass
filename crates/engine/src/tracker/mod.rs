@@ -48,6 +48,8 @@ impl Deref for DetectedNotes {
 mod bank;
 mod decimator;
 mod history;
+#[cfg(test)]
+mod probe;
 mod sieve;
 
 use bank::Bank;
@@ -95,6 +97,9 @@ const REPICK_RISE_AFTER_PICK: f32 = 1.1;
 const PICK_JUMP: f32 = 1.2;
 const PICK_HOPS: usize = 8;
 const PICK_WINDOW_SECONDS: f32 = 0.04;
+/// A sounding note whose pitch jumps this far (semitones) in one hop right
+/// after a pick was picked again.
+const REPICK_JUMP: f32 = 0.5;
 /// After an onset the level is still rising toward the pick's peak; no
 /// repick is looked for until this long after it.
 const REPICK_HOLDOFF_SECONDS: f32 = 0.08;
@@ -178,10 +183,21 @@ impl Tracker {
     }
 
     fn hop(&mut self) {
+        self.bank.hop();
         let mut heard = [RawNote::default(); MAX_DETECTED_NOTES];
-        let count = self
-            .sieve
-            .analyse(&self.bank, &self.history, self.gate, &mut heard);
+        let mut sounding = [0.0; MAX_DETECTED_NOTES];
+        let mut sounding_count = 0;
+        for t in self.tracked.iter().flatten().filter(|t| t.reported) {
+            sounding[sounding_count] = t.note.pitch;
+            sounding_count += 1;
+        }
+        let count = self.sieve.analyse(
+            &self.bank,
+            &self.history,
+            self.gate,
+            &sounding[..sounding_count],
+            &mut heard,
+        );
         let mut matched = [false; MAX_DETECTED_NOTES];
 
         let pick_level = self.pick_meter.level();
@@ -212,8 +228,12 @@ impl Tracker {
                 .filter(|&(_, distance)| distance <= radius)
                 .min_by(|a, b| a.1.total_cmp(&b.1));
             match nearest {
-                Some((i, _)) => {
+                Some((i, distance)) => {
                     matched[i] = true;
+                    // A pick disturbs the analysis of a sounding note: its
+                    // pitch jumps even when its level hasn't risen yet.
+                    let jumped =
+                        distance > REPICK_JUMP && self.hops_since_pick <= self.pick_window_hops;
                     slot.note.pitch = heard[i].pitch;
                     slot.note.level = heard[i].level;
                     slot.hops_alive += 1;
@@ -222,7 +242,7 @@ impl Tracker {
                         slot.hops_since_onset += 1;
                         if slot.hops_since_onset <= self.repick_holdoff_hops {
                             slot.valley = slot.note.level;
-                        } else if slot.note.level > repick_rise * slot.valley {
+                        } else if slot.note.level > repick_rise * slot.valley || jumped {
                             slot.note.repicks += 1;
                             slot.note.onset_strength = self.pick_meter.level();
                             slot.hops_since_onset = 0;

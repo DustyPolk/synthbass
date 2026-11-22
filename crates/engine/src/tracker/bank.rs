@@ -14,6 +14,12 @@ pub const BAND_COUNT: usize = 54;
 const MIN_BANDWIDTH_HZ: f32 = 12.0;
 /// Above the floor, bands are about a semitone wide.
 const BAND_Q: f32 = 17.0;
+/// Time constant of each of the two smoothing stages for the slow IF.
+const SLOW_IF_SECONDS: f32 = 0.03;
+/// A band whose amplitude grows by `RISE` within `RISE_HOPS` hops is
+/// hearing a new note: its slow IF restarts.
+const RISE: f32 = 1.5;
+const RISE_HOPS: usize = 8;
 /// Lowest fundamental whose period the IF can be averaged over.
 pub const LOWEST_F0_HZ: f32 = 37.0;
 
@@ -60,6 +66,12 @@ struct Band {
     stage_2: Complex,
     /// Its own period in analysis samples: the IF window for picking.
     period: usize,
+    /// The lag-1 products smoothed by two one-poles: the slow IF.
+    slow: [Complex; 2],
+    /// Amplitude at each of the last `RISE_HOPS` hops.
+    recent: [f32; RISE_HOPS],
+    /// The slow IF restarted at the latest hop.
+    restarted: bool,
 }
 
 pub struct Bank {
@@ -69,6 +81,8 @@ pub struct Bank {
     products: Vec<Complex>,
     ring_len: usize,
     pos: usize,
+    slow_coefficient: f32,
+    recent_index: usize,
 }
 
 pub fn midi_to_hz(midi: f32) -> f32 {
@@ -96,6 +110,9 @@ impl Bank {
                     stage_1: Complex::default(),
                     stage_2: Complex::default(),
                     period: (rate / centre_hz).round().max(1.0) as usize,
+                    slow: [Complex::default(); 2],
+                    recent: [0.0; RISE_HOPS],
+                    restarted: false,
                 }
             })
             .collect();
@@ -106,6 +123,8 @@ impl Bank {
             products: vec![Complex::default(); BAND_COUNT * ring_len],
             ring_len,
             pos: 0,
+            recent_index: 0,
+            slow_coefficient: 1.0 - (-1.0 / (SLOW_IF_SECONDS * rate)).exp(),
         }
     }
 
@@ -125,7 +144,12 @@ impl Bank {
                 .pole
                 .mul(band.stage_2)
                 .add(band.stage_1.scale(band.gain));
-            self.products[k * self.ring_len + self.pos] = band.stage_2.mul(previous.conj());
+            let product = band.stage_2.mul(previous.conj());
+            self.products[k * self.ring_len + self.pos] = product;
+            let k = self.slow_coefficient;
+            let [first, second] = &mut band.slow;
+            *first = first.add(product.add(first.scale(-1.0)).scale(k));
+            *second = second.add(first.add(second.scale(-1.0)).scale(k));
         }
     }
 
@@ -150,6 +174,41 @@ impl Bank {
     /// IF averaged over the band's own period, in Hz.
     pub fn frequency(&self, band: usize) -> f32 {
         self.frequency_over(band, self.bands[band].period)
+    }
+
+    /// IF smoothed over about 60 ms, in Hz: slow, but it averages out the
+    /// beating between a partial and a neighbour too close for the band to
+    /// separate (the partials of a low third).
+    pub fn slow_frequency(&self, band: usize) -> f32 {
+        let z = self.bands[band].slow[1];
+        z.im.atan2(z.re) * self.rate / std::f32::consts::TAU
+    }
+
+    /// Once per hop: a band hearing a new note forgets the old one, so its
+    /// slow IF doesn't lag behind the note change.
+    pub fn hop(&mut self) {
+        for (k, band) in self.bands.iter_mut().enumerate() {
+            let z = band.stage_2;
+            let amp = 2.0 * (z.re * z.re + z.im * z.im).sqrt();
+            let old = std::mem::replace(&mut band.recent[self.recent_index], amp);
+            band.restarted = amp > RISE * old;
+            if band.restarted {
+                // From the mean product over the band's own period, which
+                // has no ripple from the note's other harmonics.
+                let ring = &self.products[k * self.ring_len..(k + 1) * self.ring_len];
+                let mut sum = Complex::default();
+                for i in 0..band.period {
+                    sum = sum.add(ring[(self.pos + self.ring_len - i) % self.ring_len]);
+                }
+                band.slow = [sum.scale(1.0 / band.period as f32); 2];
+            }
+        }
+        self.recent_index = (self.recent_index + 1) % RISE_HOPS;
+    }
+
+    /// True if the band's slow IF restarted at the latest hop.
+    pub fn restarted(&self, band: usize) -> bool {
+        self.bands[band].restarted
     }
 
     /// IF averaged over the last `window` analysis samples, in Hz. Averaging
