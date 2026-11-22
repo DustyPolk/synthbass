@@ -145,6 +145,7 @@ fn defaults_because(path: &Path, err: &dyn std::fmt::Display) -> Loaded {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::ports::Choice;
 
     fn temp_path(name: &str) -> PathBuf {
         let dir =
@@ -181,8 +182,11 @@ mod tests {
         .unwrap();
         let loaded = Settings::load(&path);
         assert_eq!(loaded.warning, None);
-        assert_eq!(loaded.settings.ports.input.as_deref(), Some("X:capture_FL"));
-        assert_eq!(loaded.settings.ports.output_1, None);
+        assert_eq!(
+            loaded.settings.ports.input,
+            Choice::Port("X:capture_FL".into())
+        );
+        assert_eq!(loaded.settings.ports.output_1, Choice::Auto);
     }
 
     #[test]
@@ -236,13 +240,13 @@ mod tests {
             .update(|s| s.last_patch = Some("Squelch".into()))
             .unwrap();
         other
-            .update(|s| s.ports.input = Some("X:capture_FR".into()))
+            .update(|s| s.ports.input = Choice::Port("X:capture_FR".into()))
             .unwrap();
         store.update(|s| s.noise_gate = 0.02).unwrap();
 
         let saved = Settings::load(&path).settings;
         assert_eq!(saved.last_patch.as_deref(), Some("Squelch"));
-        assert_eq!(saved.ports.input.as_deref(), Some("X:capture_FR"));
+        assert_eq!(saved.ports.input, Choice::Port("X:capture_FR".into()));
         assert_eq!(saved.noise_gate, 0.02);
         assert_eq!(other.get(), saved);
     }
@@ -252,9 +256,9 @@ mod tests {
         let path = temp_path("round-trip");
         let settings = Settings {
             ports: Routing {
-                input: Some("Scarlett:capture_FR".into()),
-                output_1: Some("Scarlett:playback_FL".into()),
-                output_2: None,
+                input: Choice::Port("Scarlett:capture_FR".into()),
+                output_1: Choice::Off,
+                output_2: Choice::Auto,
             },
             ..Settings::default()
         };

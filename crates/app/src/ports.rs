@@ -4,14 +4,57 @@
 
 use serde::{Deserialize, Serialize};
 
-/// The ports the app connects to, by full JACK name. `None` means
-/// unconnected.
+/// The ports the app connects to, by full JACK name.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Routing {
-    pub input: Option<String>,
-    pub output_1: Option<String>,
-    pub output_2: Option<String>,
+    pub input: Choice,
+    pub output_1: Choice,
+    pub output_2: Choice,
+}
+
+/// What one slot connects to.
+///
+/// In the settings file a port is its name, `Off` is an empty string, and
+/// `Auto` is no entry at all, so files from before `Off` existed still load.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "Option<String>", into = "Option<String>")]
+pub enum Choice {
+    /// Never chosen: takes the interface default whenever there is one.
+    #[default]
+    Auto,
+    /// Deliberately unconnected: no default ever fills it.
+    Off,
+    Port(String),
+}
+
+impl Choice {
+    fn port(&self) -> Option<&str> {
+        match self {
+            Choice::Port(name) => Some(name),
+            Choice::Auto | Choice::Off => None,
+        }
+    }
+}
+
+impl From<Option<String>> for Choice {
+    fn from(saved: Option<String>) -> Choice {
+        match saved {
+            None => Choice::Auto,
+            Some(name) if name.is_empty() => Choice::Off,
+            Some(name) => Choice::Port(name),
+        }
+    }
+}
+
+impl From<Choice> for Option<String> {
+    fn from(choice: Choice) -> Option<String> {
+        match choice {
+            Choice::Auto => None,
+            Choice::Off => Some(String::new()),
+            Choice::Port(name) => Some(name),
+        }
+    }
 }
 
 /// One of the app's three connections.
@@ -27,19 +70,27 @@ impl Slot {
 }
 
 impl Routing {
+    /// The port a slot connects to, if any.
     pub fn get(&self, slot: Slot) -> Option<&str> {
+        self.choice(slot).port()
+    }
+
+    fn choice(&self, slot: Slot) -> &Choice {
         match slot {
-            Slot::Input => self.input.as_deref(),
-            Slot::Output1 => self.output_1.as_deref(),
-            Slot::Output2 => self.output_2.as_deref(),
+            Slot::Input => &self.input,
+            Slot::Output1 => &self.output_1,
+            Slot::Output2 => &self.output_2,
         }
     }
 
+    /// Records the user's pick for a slot; `None` leaves it unconnected on
+    /// purpose.
     pub fn set(&mut self, slot: Slot, port: Option<String>) {
+        let choice = port.map_or(Choice::Off, Choice::Port);
         match slot {
-            Slot::Input => self.input = port,
-            Slot::Output1 => self.output_1 = port,
-            Slot::Output2 => self.output_2 = port,
+            Slot::Input => self.input = choice,
+            Slot::Output1 => self.output_1 = choice,
+            Slot::Output2 => self.output_2 = choice,
         }
     }
 }
@@ -66,7 +117,7 @@ pub struct PortLists {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Health {
     Connected,
-    /// Some slot is unchosen and the interface is not there to fill it.
+    /// Some slot was never chosen and the interface is not there to fill it.
     InterfaceNotFound,
     /// Chosen ports that no longer exist (e.g. the interface was unplugged).
     Vanished(Vec<String>),
@@ -78,14 +129,15 @@ const INTERFACE_PATTERN: &str = "Scarlett";
 impl Routing {
     /// The startup choice: each saved port that exists, otherwise the
     /// interface default for that slot. With neither, the saved port is kept
-    /// so it reconnects if it appears later.
+    /// so it reconnects if it appears later. A slot saved as `Off` stays off.
     pub fn at_launch(saved: &Routing, ports: &PortLists) -> Routing {
         let default = Routing::interface_default(ports);
-        let pick =
-            |saved: &Option<String>, available: &[String], default: Option<String>| match saved {
-                Some(name) if available.contains(name) => saved.clone(),
-                _ => default.or_else(|| saved.clone()),
-            };
+        let pick = |saved: &Choice, available: &[String], default: Choice| match saved {
+            Choice::Off => Choice::Off,
+            Choice::Port(name) if available.contains(name) => saved.clone(),
+            Choice::Port(_) if default == Choice::Auto => saved.clone(),
+            Choice::Port(_) | Choice::Auto => default,
+        };
         Routing {
             input: pick(&saved.input, &ports.sources, default.input),
             output_1: pick(&saved.output_1, &ports.sinks, default.output_1),
@@ -93,14 +145,20 @@ impl Routing {
         }
     }
 
-    /// Fills empty slots with the interface default, for when the interface
+    /// Fills `Auto` slots with the interface default, for when the interface
     /// appears after launch. Returns whether anything changed.
     pub fn adopt_defaults(&mut self, ports: &PortLists) -> bool {
         let default = Routing::interface_default(ports);
         let before = self.clone();
-        self.input = self.input.take().or(default.input);
-        self.output_1 = self.output_1.take().or(default.output_1);
-        self.output_2 = self.output_2.take().or(default.output_2);
+        for (slot, default) in [
+            (&mut self.input, default.input),
+            (&mut self.output_1, default.output_1),
+            (&mut self.output_2, default.output_2),
+        ] {
+            if *slot == Choice::Auto {
+                *slot = default;
+            }
+        }
         *self != before
     }
 
@@ -113,12 +171,16 @@ impl Routing {
         ];
         let vanished: Vec<String> = slots
             .iter()
-            .filter_map(|(slot, available)| slot.as_ref().filter(|name| !available.contains(name)))
-            .cloned()
+            .filter_map(|(choice, available)| {
+                choice
+                    .port()
+                    .filter(|name| !available.iter().any(|a| a == name))
+            })
+            .map(str::to_string)
             .collect();
         if !vanished.is_empty() {
             Health::Vanished(vanished)
-        } else if slots.iter().any(|(slot, _)| slot.is_none()) {
+        } else if slots.iter().any(|(choice, _)| **choice == Choice::Auto) {
             Health::InterfaceNotFound
         } else {
             Health::Connected
@@ -138,10 +200,11 @@ impl Routing {
             found.into_iter()
         };
         let mut sinks = interface(&ports.sinks);
+        let choice = |port: Option<String>| port.map_or(Choice::Auto, Choice::Port);
         Routing {
-            input: interface(&ports.sources).next(),
-            output_1: sinks.next(),
-            output_2: sinks.next(),
+            input: choice(interface(&ports.sources).next()),
+            output_1: choice(sinks.next()),
+            output_2: choice(sinks.next()),
         }
     }
 }
@@ -179,9 +242,9 @@ mod tests {
         assert_eq!(
             routing,
             Routing {
-                input: Some(scarlett("capture_FL")),
-                output_1: Some(scarlett("playback_FL")),
-                output_2: Some(scarlett("playback_FR")),
+                input: Choice::Port(scarlett("capture_FL")),
+                output_1: Choice::Port(scarlett("playback_FL")),
+                output_2: Choice::Port(scarlett("playback_FR")),
             }
         );
     }
@@ -189,17 +252,17 @@ mod tests {
     #[test]
     fn launch_keeps_saved_ports_that_exist_and_replaces_ones_that_do_not() {
         let saved = Routing {
-            input: Some("Built-in Audio Analog Stereo:capture_FL".into()),
-            output_1: Some("Gone Device:playback_FL".into()),
-            output_2: Some(scarlett("playback_LFE")),
+            input: Choice::Port("Built-in Audio Analog Stereo:capture_FL".into()),
+            output_1: Choice::Port("Gone Device:playback_FL".into()),
+            output_2: Choice::Port(scarlett("playback_LFE")),
         };
         let routing = Routing::at_launch(&saved, &with_scarlett());
         assert_eq!(
             routing,
             Routing {
-                input: Some("Built-in Audio Analog Stereo:capture_FL".into()),
-                output_1: Some(scarlett("playback_FL")),
-                output_2: Some(scarlett("playback_LFE")),
+                input: Choice::Port("Built-in Audio Analog Stereo:capture_FL".into()),
+                output_1: Choice::Port(scarlett("playback_FL")),
+                output_2: Choice::Port(scarlett("playback_LFE")),
             }
         );
     }
@@ -207,9 +270,9 @@ mod tests {
     #[test]
     fn launch_with_interface_absent_keeps_saved_ports_to_wait_for_them() {
         let saved = Routing {
-            input: Some(scarlett("capture_FR")),
-            output_1: None,
-            output_2: None,
+            input: Choice::Port(scarlett("capture_FR")),
+            output_1: Choice::Auto,
+            output_2: Choice::Auto,
         };
         let only_builtin = PortLists {
             sources: vec!["Built-in Audio Analog Stereo:capture_FL".into()],
@@ -221,20 +284,52 @@ mod tests {
     #[test]
     fn interface_plugged_in_later_fills_empty_slots_only() {
         let mut routing = Routing {
-            input: Some(scarlett("capture_FR")),
-            output_1: None,
-            output_2: None,
+            input: Choice::Port(scarlett("capture_FR")),
+            output_1: Choice::Auto,
+            output_2: Choice::Auto,
         };
         assert!(routing.adopt_defaults(&with_scarlett()));
         assert_eq!(
             routing,
             Routing {
-                input: Some(scarlett("capture_FR")),
-                output_1: Some(scarlett("playback_FL")),
-                output_2: Some(scarlett("playback_FR")),
+                input: Choice::Port(scarlett("capture_FR")),
+                output_1: Choice::Port(scarlett("playback_FL")),
+                output_2: Choice::Port(scarlett("playback_FR")),
             }
         );
         assert!(!routing.adopt_defaults(&with_scarlett()));
+    }
+
+    #[test]
+    fn a_slot_chosen_as_none_stays_unconnected_at_launch_and_when_the_interface_appears() {
+        let saved = Routing {
+            output_2: Choice::Off,
+            ..Routing::default()
+        };
+        let routing = Routing::at_launch(&saved, &with_scarlett());
+        assert_eq!(routing.output_2, Choice::Off);
+        assert_eq!(routing.get(Slot::Output2), None);
+
+        let mut routing = Routing::at_launch(&saved, &PortLists::default());
+        routing.adopt_defaults(&with_scarlett());
+        assert_eq!(
+            routing,
+            Routing {
+                input: Choice::Port(scarlett("capture_FL")),
+                output_1: Choice::Port(scarlett("playback_FL")),
+                output_2: Choice::Off,
+            }
+        );
+    }
+
+    #[test]
+    fn choosing_none_is_kept_by_later_passes_over_the_same_ports() {
+        let mut routing = Routing::at_launch(&Routing::default(), &with_scarlett());
+        routing.set(Slot::Input, None);
+        assert!(!routing.adopt_defaults(&with_scarlett()));
+        assert_eq!(routing.get(Slot::Input), None);
+        // Leaving a slot unconnected on purpose is not a missing interface.
+        assert_eq!(routing.health(&with_scarlett()), Health::Connected);
     }
 
     #[test]
