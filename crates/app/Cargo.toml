@@ -7,3 +7,6 @@ default-run = "synthbass"
 
 [dependencies]
 synthbass-engine = { path = "../engine" }
+jack = "0.14"
+eframe = "0.37"
+rtrb = "0.4"
