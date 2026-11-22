@@ -32,6 +32,9 @@ pub struct TrackedLayer {
     voices: [Voice; MAX_VOICES],
     /// The id the next voice to start gets.
     next_voice_id: u32,
+    /// How many notes voices have taken: each voice's `note_order` is this
+    /// count when it took its note.
+    notes_taken: u64,
     /// The voice that started most recently, and how many samples ago.
     newest: Option<usize>,
     samples_since_newest: usize,
@@ -89,6 +92,7 @@ impl TrackedLayer {
         TrackedLayer {
             voices: std::array::from_fn(|i| Voice::new(sample_rate, i as u32)),
             next_voice_id: 0,
+            notes_taken: 0,
             newest: None,
             samples_since_newest: usize::MAX,
             glide_source_samples: (GLIDE_SOURCE_SECONDS * sample_rate) as usize,
@@ -202,19 +206,30 @@ impl TrackedLayer {
             .last_ended
             .filter(|_| self.samples_since_ended <= self.glide_memory_samples);
         let glide_from = still_sounding.or(just_ended).filter(|_| self.glide > 0.0);
+        // Of notes that end together, the last one played is the one a mono
+        // synth would glide from.
+        if let Some(ended) = self
+            .voices
+            .iter()
+            .zip(playing)
+            .filter(|(voice, note)| note.is_none() && voice.note_id.is_some())
+            .map(|(voice, _)| voice)
+            .max_by_key(|voice| voice.note_order)
+        {
+            self.last_ended = ended.reading().map(|reading| reading.pitch);
+            self.samples_since_ended = 0;
+        }
         for (i, (voice, note)) in self.voices.iter_mut().zip(playing).enumerate() {
             let starting = !voice.sounding && note.is_some();
             let new_note = note.is_some_and(|note| voice.note_id != Some(note.id));
-            if note.is_none() && voice.note_id.is_some() {
-                self.last_ended = voice.reading().map(|reading| reading.pitch);
-                self.samples_since_ended = 0;
-            }
             if starting {
                 self.next_voice_id = self.next_voice_id.wrapping_add(1);
                 voice.id = self.next_voice_id;
             }
             voice.update(note, string_level);
             if new_note {
+                self.notes_taken += 1;
+                voice.note_order = self.notes_taken;
                 if let Some(pitch) = glide_from {
                     voice.glide_from(pitch);
                 }
@@ -368,6 +383,8 @@ struct Voice {
     note_id: Option<u32>,
     /// The `repicks` count of the note when the filter envelope last fired.
     repicks: u32,
+    /// When the voice took its note, in the layer's count of notes taken.
+    note_order: u64,
     sounding: bool,
     /// The note's pitch, smoothed only to remove the tracker's hop steps.
     pitch: f32,
@@ -397,6 +414,7 @@ impl Voice {
             id: 0,
             note_id: None,
             repicks: 0,
+            note_order: 0,
             sounding: false,
             pitch: 0.0,
             target_pitch: 0.0,

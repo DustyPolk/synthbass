@@ -163,6 +163,55 @@ fn a_note_after_a_long_gap_starts_on_pitch() {
     assert!(time <= 0.005, "{time:.3} s");
 }
 
+/// Mixes `tone` into `dry` from `start` seconds, ending it at `end` seconds
+/// with a 5 ms mute.
+fn add_muted(dry: &mut Vec<f32>, tone: Vec<f32>, start: f32, end: f32) {
+    let (start, end) = ((start * SAMPLE_RATE) as usize, (end * SAMPLE_RATE) as usize);
+    let fade = (0.005 * SAMPLE_RATE) as usize;
+    if dry.len() < end {
+        dry.resize(end, 0.0);
+    }
+    for (i, (s, t)) in dry[start..end].iter_mut().zip(tone).enumerate() {
+        let left = end - start - i;
+        *s += t * (left.min(fade) as f32 / fade as f32);
+    }
+}
+
+#[test]
+fn a_note_after_several_end_together_glides_from_the_newest_of_them() {
+    // A2 sounds alone, then with D2 picked under it; A2 ends, and E2 is picked
+    // over the ringing D2. Both are muted together: the next note glides
+    // from E2, the note played last, not D2.
+    let (g1, d2, e2, a2) = (31.0, 38.0, 40.0, 45.0);
+    let mut dry = Vec::new();
+    add_muted(&mut dry, bass_tone(hz(a2), 0.3, 1.0, 1.0), 0.0, 0.6);
+    add_muted(&mut dry, bass_tone(hz(d2), 0.3, 1.0, 2.0), 0.2, 1.5);
+    add_muted(&mut dry, bass_tone(hz(e2), 0.3, 1.0, 1.0), 1.0, 1.5);
+    add_muted(&mut dry, bass_tone(hz(g1), 0.3, 1.0, 0.5), 1.7, 2.2);
+    let mut engine = engine();
+    engine.set_param(Param::TrackedGlide, 0.2);
+    let readouts = readouts(&mut engine, &dry);
+    let before: Vec<u32> = readouts
+        .iter()
+        .filter(|(t, _)| *t < 1.7)
+        .flat_map(|(_, r)| r.voices.iter().map(|v| v.id))
+        .collect();
+    let (t, first) = readouts
+        .iter()
+        .filter(|(t, _)| *t >= 1.7)
+        .find_map(|(t, r)| {
+            r.voices
+                .iter()
+                .find(|v| !before.contains(&v.id))
+                .map(|v| (t, v.pitch))
+        })
+        .expect("G1 gets a voice");
+    assert!(
+        (first - e2).abs() < 1.0,
+        "{t:.3} s: G1's voice started at {first:.2}"
+    );
+}
+
 #[test]
 fn notes_picked_together_do_not_glide_into_each_other() {
     // A tenth, E1 + G#2: its voices are the same with a long glide as
