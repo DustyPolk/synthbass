@@ -81,7 +81,7 @@ fn record(args: &Args) -> Result<(), String> {
     if client.port_by_name(&source).is_none() {
         return Err(format!(
             "no port named {source:?}. Capture ports:\n  {}",
-            capture_ports(&client, None).join("\n  ")
+            capture_ports(&client).join("\n  ")
         ));
     }
 
@@ -139,10 +139,10 @@ fn record(args: &Args) -> Result<(), String> {
 
 /// Scarlett input 1, as the app picks it.
 fn default_source(client: &Client) -> Result<String, String> {
-    default_source_in(&capture_ports(client, None)).ok_or_else(|| {
+    default_source_in(&capture_ports(client)).ok_or_else(|| {
         format!(
             "Scarlett not found; pass --port. Capture ports:\n  {}",
-            capture_ports(client, None).join("\n  ")
+            capture_ports(client).join("\n  ")
         )
     })
 }
@@ -152,10 +152,10 @@ fn default_source_in(capture_ports: &[String]) -> Option<String> {
     synthbass::ports::interface_ports(capture_ports).next()
 }
 
-fn capture_ports(client: &Client, pattern: Option<&str>) -> Vec<String> {
+fn capture_ports(client: &Client) -> Vec<String> {
     let spec = AudioIn::default();
     client.ports(
-        pattern,
+        None,
         Some(spec.jack_port_type()),
         PortFlags::IS_OUTPUT | PortFlags::IS_PHYSICAL,
     )
