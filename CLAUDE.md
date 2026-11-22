@@ -6,7 +6,7 @@ Issues live as local markdown files under `.scratch/<feature>/`. See `docs/agent
 
 ### Triage labels
 
-Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`, recorded as a `Status:` line in each issue file. See `docs/agents/triage-labels.md`.
+Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`, recorded as a `Status:` line in each issue file; `done` closes an issue. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 
