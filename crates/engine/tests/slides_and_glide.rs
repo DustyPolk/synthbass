@@ -103,18 +103,28 @@ fn vibrato_is_tracked_within_the_clip_tolerance() {
     }
 }
 
-/// Plays A1, then D2 picked straight after it (no gap), with `glide`, and
-/// returns how long after D2 was detected a voice came within a tenth of
-/// the interval (half a semitone) of D2.
-fn time_to_reach_d2(glide: f32) -> f32 {
+/// Plays A1, mutes it, waits `gap` seconds of silence and picks D2, with
+/// `glide`. Returns how long after D2 was detected a voice came within a
+/// tenth of the interval (half a semitone) of D2.
+fn time_to_reach_d2(glide: f32, gap: f32) -> f32 {
     let (a1, d2) = (33.0, 38.0);
     let mut dry = bass_tone(hz(a1), 0.4, 1.0, 0.5);
+    if gap > 0.0 {
+        // A 5 ms fade, like a palm or fretting-hand mute.
+        let fade = (0.005 * SAMPLE_RATE) as usize;
+        let len = dry.len();
+        for (i, s) in dry[len - fade..].iter_mut().enumerate() {
+            *s *= 1.0 - i as f32 / fade as f32;
+        }
+        dry.extend(std::iter::repeat_n(0.0, (gap * SAMPLE_RATE) as usize));
+    }
+    let picked = dry.len() as f32 / SAMPLE_RATE;
     dry.extend(bass_tone(hz(d2), 0.4, 1.0, 0.8));
     let mut engine = engine();
     engine.set_param(Param::TrackedGlide, glide);
     let readouts = readouts(&mut engine, &dry);
     let after = |t: f32| readouts.iter().filter(move |(time, _)| *time >= t);
-    let (detected, _) = after(0.5)
+    let (detected, _) = after(picked)
         .find(|(_, r)| r.notes.iter().any(|n| (n.pitch - d2).abs() < 0.5))
         .expect("D2 never detected");
     let (reached, _) = after(*detected)
@@ -125,17 +135,32 @@ fn time_to_reach_d2(glide: f32) -> f32 {
 
 #[test]
 fn glide_zero_follows_a_new_pitch_at_once() {
-    let time = time_to_reach_d2(0.0);
+    let time = time_to_reach_d2(0.0, 0.0);
     assert!(time <= 0.005, "{time:.3} s");
 }
 
 #[test]
 fn longer_glide_reaches_a_new_pitch_proportionally_later() {
-    let short = time_to_reach_d2(0.1);
-    let long = time_to_reach_d2(0.2);
+    let short = time_to_reach_d2(0.1, 0.0);
+    let long = time_to_reach_d2(0.2, 0.0);
     // Glide is the time to cover nine tenths of the interval.
     assert!((short - 0.1).abs() <= 0.02, "glide 0.1: {short:.3} s");
     assert!((long - 0.2).abs() <= 0.03, "glide 0.2: {long:.3} s");
+}
+
+#[test]
+fn a_note_shortly_after_the_last_one_ended_glides_from_it() {
+    // A mono Moog's portamento: the gap since the last note doesn't stop
+    // the glide, as long as it is short.
+    let time = time_to_reach_d2(0.1, 0.1);
+    assert!((time - 0.1).abs() <= 0.02, "{time:.3} s");
+}
+
+#[test]
+fn a_note_after_a_long_gap_starts_on_pitch() {
+    // A new phrase: the last note ended over half a second ago.
+    let time = time_to_reach_d2(0.2, 0.6);
+    assert!(time <= 0.005, "{time:.3} s");
 }
 
 #[test]

@@ -39,5 +39,5 @@ A Moog-style sweep of a voice's filter that fires when its note is detected and 
 _Avoid_: ADSR, contour
 
 **Glide**:
-A voice sliding into a new note's pitch over a set time instead of jumping, like Moog portamento. It applies only when a voice changes note; slides, bends and vibrato within a note are followed exactly.
+A voice sliding into a new note's pitch over a set time instead of jumping, like a mono Moog's portamento. A new note glides from the newest voice still sounding, if that voice started at least 50 ms earlier, and otherwise from the last note to end, if it ended within the glide memory (250 ms). After a longer gap a new phrase starts on pitch. Notes picked together never glide into each other. It applies only when a voice changes note; slides, bends and vibrato within a note are followed exactly.
 _Avoid_: Portamento (as a control name), slew

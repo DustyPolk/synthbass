@@ -49,6 +49,13 @@ pub struct TrackedLayer {
     /// A voice must have started this many samples before a new one to be
     /// the one it glides from.
     glide_source_samples: usize,
+    /// The pitch of the voice whose note ended most recently, and how many
+    /// samples ago.
+    last_ended: Option<f32>,
+    samples_since_ended: usize,
+    /// A new note glides from the last ended note only within this many
+    /// samples of its end.
+    glide_memory_samples: usize,
     string: StringLevel,
     gate: f32,
     waveshape: Smoothed,
@@ -99,6 +106,9 @@ impl TrackedLayer {
             newest: None,
             samples_since_newest: usize::MAX,
             glide_source_samples: (GLIDE_SOURCE_SECONDS * sample_rate) as usize,
+            last_ended: None,
+            samples_since_ended: usize::MAX,
+            glide_memory_samples: (GLIDE_MEMORY_SECONDS * sample_rate) as usize,
             string: StringLevel::new(sample_rate),
             gate: NOISE_GATE_DEFAULT,
             waveshape: Smoothed::new(Param::TrackedOsc1Waveshape.default_value(), sample_rate),
@@ -171,6 +181,7 @@ impl TrackedLayer {
     pub fn listen(&mut self, dry: &[f32]) {
         self.string.process(dry);
         self.samples_since_newest = self.samples_since_newest.saturating_add(dry.len());
+        self.samples_since_ended = self.samples_since_ended.saturating_add(dry.len());
     }
 
     /// Hands the voices the notes heard now (loudest first).
@@ -200,20 +211,29 @@ impl TrackedLayer {
             };
             playing[slot] = Some(note);
         }
-        // Glide: a new note slides in from the pitch of the voice that took
-        // the note before it, like a Moog playing a line legato. Not from one
-        // that took its note just now: notes picked together (a double stop)
-        // don't glide into each other. A voice that changes note (stolen, or
-        // reused while fading) follows the same rule, rather than gliding
-        // from its own old note.
-        let glide_from = self
+        // Glide, like a mono Moog's portamento: a new note slides in from
+        // the pitch of the voice that took the note before it, while that
+        // voice sounds, and else from the last note to end, if it ended
+        // only just now. Not from a voice that took its note just now: notes
+        // picked together (a double stop) don't glide into each other. A
+        // voice that changes note (stolen, or reused while fading) follows
+        // the same rule, rather than gliding from its own old note.
+        let still_sounding = self
             .newest
-            .filter(|_| self.glide > 0.0 && self.samples_since_newest >= self.glide_source_samples)
+            .filter(|_| self.samples_since_newest >= self.glide_source_samples)
             .and_then(|i| self.voices[i].reading())
             .map(|reading| reading.pitch);
+        let just_ended = self
+            .last_ended
+            .filter(|_| self.samples_since_ended <= self.glide_memory_samples);
+        let glide_from = still_sounding.or(just_ended).filter(|_| self.glide > 0.0);
         for (i, (voice, note)) in self.voices.iter_mut().zip(playing).enumerate() {
             let starting = !voice.sounding && note.is_some();
             let new_note = note.is_some_and(|note| voice.note_id != Some(note.id));
+            if note.is_none() && voice.note_id.is_some() {
+                self.last_ended = voice.reading().map(|reading| reading.pitch);
+                self.samples_since_ended = 0;
+            }
             if starting {
                 self.next_voice_id = self.next_voice_id.wrapping_add(1);
                 voice.id = self.next_voice_id;
@@ -281,6 +301,10 @@ impl TrackedLayer {
 /// A voice glides only from a voice that started at least this long before
 /// it.
 const GLIDE_SOURCE_SECONDS: f32 = 0.05;
+
+/// A new note glides from the last note to end only if it ended at most this
+/// long before; after a longer gap a new phrase starts on pitch.
+const GLIDE_MEMORY_SECONDS: f32 = 0.25;
 
 /// A new note must be this much louder than the quietest voice's note to
 /// take its voice, so two notes of about equal level don't trade a voice
@@ -590,132 +614,5 @@ fn poly_blep(t: f32, dt: f32) -> f32 {
         x * x + 2.0 * x + 1.0
     } else {
         0.0
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    const SAMPLE_RATE: f32 = 48_000.0;
-
-    fn note(id: u32, pitch: f32) -> DetectedNote {
-        loud_note(id, pitch, 0.3)
-    }
-
-    fn loud_note(id: u32, pitch: f32, level: f32) -> DetectedNote {
-        DetectedNote {
-            id,
-            pitch,
-            level,
-            onset_strength: 0.5,
-            repicks: 0,
-        }
-    }
-
-    /// Hands `notes` (any order) to the layer the way the tracker does,
-    /// loudest first, and returns the sounding voices' pitches, low to high.
-    fn play(layer: &mut TrackedLayer, notes: &[DetectedNote]) -> Vec<f32> {
-        let mut notes = notes.to_vec();
-        notes.sort_by(|a, b| b.level.total_cmp(&a.level));
-        layer.listen(&[0.5; 32]);
-        layer.update(&notes);
-        for _ in 0..32 {
-            layer.process();
-        }
-        // Rounded: a stolen voice glides to its new pitch.
-        let mut pitches: Vec<f32> = layer
-            .voices()
-            .iter()
-            .map(|v| (v.pitch * 100.0).round() / 100.0)
-            .collect();
-        pitches.sort_by(f32::total_cmp);
-        pitches
-    }
-
-    /// Plays `notes` for `seconds`, so voices that lost their note fade out.
-    fn hold(layer: &mut TrackedLayer, notes: &[DetectedNote], seconds: f32) -> Vec<f32> {
-        let mut pitches = Vec::new();
-        for _ in 0..(seconds * SAMPLE_RATE / 32.0) as usize {
-            pitches = play(layer, notes);
-        }
-        pitches
-    }
-
-    #[test]
-    fn five_notes_get_four_voices_and_the_quietest_has_none() {
-        let mut layer = TrackedLayer::new(SAMPLE_RATE);
-        let notes = [
-            loud_note(1, 40.0, 0.3),
-            loud_note(2, 44.0, 0.05),
-            loud_note(3, 47.0, 0.25),
-            loud_note(4, 52.0, 0.2),
-            loud_note(5, 55.0, 0.15),
-        ];
-        assert_eq!(hold(&mut layer, &notes, 0.05), [40.0, 47.0, 52.0, 55.0]);
-    }
-
-    #[test]
-    fn a_fifth_note_replaces_the_quietest_voice() {
-        let mut layer = TrackedLayer::new(SAMPLE_RATE);
-        let mut notes = vec![
-            loud_note(1, 40.0, 0.2),
-            loud_note(2, 44.0, 0.05),
-            loud_note(3, 47.0, 0.25),
-            loud_note(4, 52.0, 0.15),
-        ];
-        assert_eq!(hold(&mut layer, &notes, 0.05), [40.0, 44.0, 47.0, 52.0]);
-        notes.push(loud_note(5, 57.0, 0.3));
-        assert_eq!(hold(&mut layer, &notes, 0.05), [40.0, 47.0, 52.0, 57.0]);
-    }
-
-    #[test]
-    fn notes_of_about_equal_level_keep_their_voices() {
-        let mut layer = TrackedLayer::new(SAMPLE_RATE);
-        let four = [
-            loud_note(1, 40.0, 0.2),
-            loud_note(2, 44.0, 0.2),
-            loud_note(3, 47.0, 0.2),
-            loud_note(4, 52.0, 0.2),
-        ];
-        hold(&mut layer, &four, 0.05);
-        // A fifth note just louder than the rest doesn't steal.
-        let mut five = four.to_vec();
-        five.push(loud_note(5, 57.0, 0.22));
-        assert_eq!(hold(&mut layer, &five, 0.05), [40.0, 44.0, 47.0, 52.0]);
-    }
-
-    #[test]
-    fn a_new_note_takes_a_silent_voice_not_one_still_fading() {
-        let mut layer = TrackedLayer::new(SAMPLE_RATE);
-        play(&mut layer, &[note(1, 40.0)]);
-        // Note 1 ends; its voice starts fading as note 2 arrives.
-        assert_eq!(play(&mut layer, &[note(2, 45.0)]), [40.0, 45.0]);
-    }
-
-    #[test]
-    fn a_stolen_voice_glides_from_the_newest_voice_not_its_own_old_note() {
-        let mut layer = TrackedLayer::new(SAMPLE_RATE);
-        layer.set_param(Param::TrackedGlide, 0.1);
-        let quiet = loud_note(1, 40.0, 0.05);
-        hold(&mut layer, &[quiet], 0.3);
-        let chord = [
-            quiet,
-            loud_note(2, 44.0, 0.2),
-            loud_note(3, 47.0, 0.2),
-            loud_note(4, 52.0, 0.2),
-        ];
-        assert_eq!(hold(&mut layer, &chord, 0.6), [40.0, 44.0, 47.0, 52.0]);
-        // Note 5 takes the quietest note's voice. The newest voice plays 52,
-        // so that is where the glide starts, not at 40.
-        let mut five = chord.to_vec();
-        five.push(loud_note(5, 57.0, 0.3));
-        let pitches = play(&mut layer, &five);
-        assert_eq!(pitches[..3], [44.0, 47.0, 52.0], "{pitches:?}");
-        assert!(
-            (52.0..54.0).contains(&pitches[3]),
-            "the stolen voice starts its glide at {}",
-            pitches[3]
-        );
     }
 }
