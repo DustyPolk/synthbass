@@ -47,3 +47,4 @@ pub fn sine(freq: f32, amplitude: f32, seconds: f32) -> Vec<f32> {
 pub fn peak(signal: &[f32]) -> f32 {
     signal.iter().fold(0.0, |max, s| max.max(s.abs()))
 }
+pub mod clip;

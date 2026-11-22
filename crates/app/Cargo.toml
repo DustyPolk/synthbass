@@ -13,3 +13,5 @@ rtrb = "0.4"
 serde = { version = "1", features = ["derive"] }
 toml = "1"
 dirs = "7"
+hound = "3.5"
+ctrlc = "3.4"
