@@ -104,6 +104,27 @@ fn detune_shifts_oscillator_2_by_its_cents() {
     }
 }
 
+/// With every sound setting at its default, dropping oscillator 2 an octave
+/// puts energy an octave below the note, where nothing else in the voice
+/// sounds (the sub-oscillator is off by default).
+#[test]
+fn oscillator_2_octave_is_heard_at_default_settings() {
+    let below_the_note = |octave: f32| {
+        let mut engine = engine();
+        engine.set_param(Param::DryLevel, 0.0);
+        engine.set_param(Param::TrackedLevel, 1.0);
+        engine.set_param(Param::TrackedOsc2Octave, octave);
+        let out = settled_output(&mut engine, A1);
+        energy_at(&out, hz(A1 - 12.0)) / energy_at(&out, hz(A1))
+    };
+    let unison = below_the_note(0.0);
+    let down = below_the_note(-1.0);
+    assert!(
+        down > 0.1 && down > 1_000.0 * unison,
+        "an octave below the note: {down} with oscillator 2 down vs {unison} at unison"
+    );
+}
+
 /// A dark filter that a full-depth envelope opens, scaled fully by how hard
 /// the note is picked.
 fn plucky_voice(envelope_amount: f32) -> Engine {

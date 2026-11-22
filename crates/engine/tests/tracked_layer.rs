@@ -53,6 +53,9 @@ fn frequency(signal: &[f32]) -> f32 {
 fn the_voice_sounds_at_the_detected_pitch_as_saw_and_square() {
     for waveshape in [0.0, 1.0] {
         let mut engine = tracked_only();
+        // Oscillator 1 alone: oscillator 2 starts each note at a random
+        // phase, which adds zero crossings to the blend.
+        engine.set_param(Param::TrackedOscMix, 0.0);
         engine.set_param(Param::TrackedOsc1Waveshape, waveshape);
         let out = render(&mut engine, &bass_tone(hz(A1), 0.4, 1.0, 0.6), &[128]).left;
         let settled = &out[(0.2 * SAMPLE_RATE) as usize..];
@@ -155,6 +158,9 @@ fn tracked_layer_level_at_zero_removes_its_contribution() {
 fn the_voice_fades_in_without_a_click() {
     for waveshape in [0.0, 1.0] {
         let mut engine = tracked_only();
+        // Oscillator 1 alone: oscillator 2 starts each note at a random
+        // phase, which adds zero crossings to the blend.
+        engine.set_param(Param::TrackedOscMix, 0.0);
         engine.set_param(Param::TrackedOsc1Waveshape, waveshape);
         let dry = after_settling(bass_tone(hz(A1), 0.4, 1.0, 0.5));
         let out = render(&mut engine, &dry, &[128]).left;
