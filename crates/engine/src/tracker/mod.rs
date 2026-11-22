@@ -232,7 +232,7 @@ impl Tracker {
             },
             &mut heard,
         );
-        let mut matched = [false; MAX_DETECTED_NOTES];
+        let found = continuations(&self.tracked, &heard[..count]);
 
         let pick_level = self.pick_meter.level();
         // The ring runs oldest first from `pick_history_index`; the levels at
@@ -254,19 +254,10 @@ impl Tracker {
             REPICK_RISE
         };
 
-        // Each sounding note takes the nearest note heard this hop.
-        for slot in self.tracked.iter_mut().flatten() {
-            let radius = if slot.reported {
-                MATCH_RADIUS
-            } else {
-                PENDING_MATCH_RADIUS
-            };
-            let nearest = (0..count)
-                .filter(|&i| !matched[i])
-                .map(|i| (i, (heard[i].pitch - slot.note.pitch).abs()))
-                .filter(|&(_, distance)| distance <= radius)
-                .min_by(|a, b| a.1.total_cmp(&b.1));
-            match nearest {
+        let mut matched = [false; MAX_DETECTED_NOTES];
+        for (slot, found) in self.tracked.iter_mut().zip(found) {
+            let Some(slot) = slot else { continue };
+            match found {
                 Some((i, distance)) => {
                     matched[i] = true;
                     // A pick disturbs the analysis of a sounding note: its
@@ -368,5 +359,87 @@ impl Tracker {
             note: nearest.clamp(0.0, 127.0) as u8,
             cents: (only.note.pitch - nearest) * 100.0,
         })
+    }
+}
+
+/// Which note heard this hop (index into `heard`, and how far it lies) each
+/// tracked note continues as: the nearest one within its match radius.
+/// Reported notes choose first: a pending note that took the one a reported
+/// note continues as would make it expire and return with a new id mid-note.
+fn continuations(
+    tracked: &[Option<Tracked>; MAX_DETECTED_NOTES],
+    heard: &[RawNote],
+) -> [Option<(usize, f32)>; MAX_DETECTED_NOTES] {
+    let mut taken = [false; MAX_DETECTED_NOTES];
+    let mut found = [None; MAX_DETECTED_NOTES];
+    let reported_first = [true, false].into_iter().flat_map(|reported| {
+        (0..MAX_DETECTED_NOTES)
+            .filter(move |&slot| tracked[slot].is_some_and(|t| t.reported == reported))
+    });
+    for slot in reported_first {
+        let Some(t) = tracked[slot] else { continue };
+        let radius = if t.reported {
+            MATCH_RADIUS
+        } else {
+            PENDING_MATCH_RADIUS
+        };
+        let nearest = heard
+            .iter()
+            .enumerate()
+            .filter(|&(i, _)| !taken[i])
+            .map(|(i, h)| (i, (h.pitch - t.note.pitch).abs()))
+            .filter(|&(_, distance)| distance <= radius)
+            .min_by(|a, b| a.1.total_cmp(&b.1));
+        if let Some((i, _)) = nearest {
+            taken[i] = true;
+        }
+        found[slot] = nearest;
+    }
+    found
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tracked(pitch: f32, reported: bool) -> Option<Tracked> {
+        Some(Tracked {
+            note: DetectedNote {
+                pitch,
+                ..DetectedNote::default()
+            },
+            reported,
+            ..Tracked::default()
+        })
+    }
+
+    fn heard(pitch: f32) -> RawNote {
+        RawNote {
+            pitch,
+            ..RawNote::default()
+        }
+    }
+
+    #[test]
+    fn a_sounding_note_keeps_the_note_it_continues_as_over_a_pending_one_nearer_to_it() {
+        // The pending note sits in an earlier slot and is nearer to the
+        // only note heard; the sounding note must still take it, or it
+        // would expire and come back with a new id mid-note.
+        let mut slots = [None; MAX_DETECTED_NOTES];
+        slots[0] = tracked(40.4, false);
+        slots[1] = tracked(40.0, true);
+        let found = continuations(&slots, &[heard(40.25)]);
+        assert_eq!(found[1].map(|(i, _)| i), Some(0));
+        assert_eq!(found[0], None);
+    }
+
+    #[test]
+    fn a_pending_note_takes_what_the_sounding_notes_leave() {
+        let mut slots = [None; MAX_DETECTED_NOTES];
+        slots[0] = tracked(40.4, false);
+        slots[1] = tracked(40.0, true);
+        let found = continuations(&slots, &[heard(40.1), heard(40.45)]);
+        assert_eq!(found[1].map(|(i, _)| i), Some(0));
+        assert_eq!(found[0].map(|(i, _)| i), Some(1));
     }
 }
