@@ -2,7 +2,7 @@
 
 mod common;
 
-use common::clip::{VoiceScore, clip_path, load_clip, run_clip, score_voices};
+use common::clip::{VoiceScore, clip_path, load_clip, run_clip, score_tuner, score_voices};
 
 fn score(name: &str) -> VoiceScore {
     let clip = load_clip(&clip_path(name));
@@ -69,6 +69,32 @@ fn open_strings_play_one_voice_each_at_their_pitch() {
 #[test]
 fn a_chromatic_run_plays_one_voice_per_note() {
     check("chromatic-run", SINGLE_NOTES, &[]);
+}
+
+/// The tuner names each event's note within the clip's cents tolerance for
+/// the same share of its window that a voice must cover it, and shows any
+/// other reading no longer than a voice may sound off the notes. Where no
+/// clear single note is expected (a string ringing on), it may stay blank.
+fn check_tuner(name: &str, bar: Bar) {
+    let clip = load_clip(&clip_path(name));
+    let run = run_clip(&clip, &[128]);
+    let mut failures = Vec::new();
+    for s in score_tuner(&clip, &run) {
+        if (s.expected.is_some() && s.on_note < bar.coverage) || s.wrong > bar.extra {
+            failures.push(s.to_string());
+        }
+    }
+    assert!(failures.is_empty(), "{name}:\n{}", failures.join("\n"));
+}
+
+#[test]
+fn the_tuner_reads_each_open_string() {
+    check_tuner("open-strings", SINGLE_NOTES);
+}
+
+#[test]
+fn the_tuner_reads_each_note_of_a_chromatic_run() {
+    check_tuner("chromatic-run", SINGLE_NOTES);
 }
 
 #[test]
@@ -147,6 +173,10 @@ fn print_scores() {
         "palm-mutes",
     ] {
         println!("{name}\n{}", score(name));
+        let clip = load_clip(&clip_path(name));
+        for s in score_tuner(&clip, &run_clip(&clip, &[128])) {
+            println!("{s}");
+        }
     }
 }
 
