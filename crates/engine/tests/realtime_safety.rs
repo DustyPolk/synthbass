@@ -30,18 +30,27 @@ static GLOBAL: CountingAllocator = CountingAllocator;
 #[test]
 fn processing_parameter_changes_and_readout_allocate_nothing() {
     let mut engine = engine();
-    let dry = sine(110.0, 1.5, 0.5);
+    // A low and a high note together keep the tracker busy with notes.
+    let dry: Vec<f32> = sine(41.2, 0.4, 0.5)
+        .iter()
+        .zip(sine(130.8, 0.3, 0.5))
+        .map(|(a, b)| a + b)
+        .collect();
     let mut left = vec![0.0; MAX_BLOCK];
     let mut right = vec![0.0; MAX_BLOCK];
 
+    let mut notes_seen = false;
     let before = ALLOCATIONS.load(Ordering::Relaxed);
     for (i, block) in dry.chunks(MAX_BLOCK).enumerate() {
         engine.set_param(Param::OutputLevel, i as f32 * 0.1);
+        engine.set_noise_gate(0.001 * i as f32);
         let n = block.len();
         engine.process(block, &mut left[..n], &mut right[..n]);
-        std::hint::black_box(engine.readout());
+        let readout = std::hint::black_box(engine.readout());
+        notes_seen |= !readout.notes.is_empty();
     }
     let after = ALLOCATIONS.load(Ordering::Relaxed);
 
     assert_eq!(after - before, 0, "allocations in the processing path");
+    assert!(notes_seen, "the tracker never detected a note");
 }

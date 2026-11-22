@@ -7,13 +7,18 @@ mod limiter;
 mod param;
 mod readout;
 mod smoothed;
+mod tracker;
 
 pub use limiter::LIMITER_CEILING;
 use limiter::Limiter;
 pub use param::Param;
 use readout::PeakMeter;
-pub use readout::Readout;
+pub use readout::{Readout, TunerReading};
 use smoothed::Smoothed;
+use tracker::Tracker;
+pub use tracker::{
+    DetectedNote, DetectedNotes, MAX_DETECTED_NOTES, NOISE_GATE_DEFAULT, NOISE_GATE_RANGE,
+};
 
 /// Signal chain in this slice: dry signal → dry signal level → output level
 /// → hard limiter → outputs 1/2 (dual mono).
@@ -23,6 +28,7 @@ pub struct Engine {
     output_level: Smoothed,
     limiter: Limiter,
     input_meter: PeakMeter,
+    tracker: Tracker,
 }
 
 impl Engine {
@@ -35,6 +41,7 @@ impl Engine {
             output_level: Smoothed::new(Param::OutputLevel.default_value(), sample_rate),
             limiter: Limiter::new(sample_rate),
             input_meter: PeakMeter::new(sample_rate),
+            tracker: Tracker::new(sample_rate),
         }
     }
 
@@ -45,6 +52,13 @@ impl Engine {
             Param::DryLevel => self.dry_level.set_target(value),
             Param::OutputLevel => self.output_level.set_target(value),
         }
+    }
+
+    /// Sets the global noise gate threshold (linear amplitude): quieter notes
+    /// are not detected. Kept apart from sound parameters so switching
+    /// patches never changes how the app copes with room noise.
+    pub fn set_noise_gate(&mut self, threshold: f32) {
+        self.tracker.set_gate(threshold);
     }
 
     /// Processes one block of mono dry signal into the two output blocks.
@@ -58,6 +72,7 @@ impl Engine {
             left.len() == dry.len() && right.len() == dry.len(),
             "block length mismatch"
         );
+        self.tracker.process(dry);
         for ((&d, l), r) in dry.iter().zip(left.iter_mut()).zip(right.iter_mut()) {
             self.input_meter.process(d);
             let out = self
@@ -71,6 +86,8 @@ impl Engine {
     pub fn readout(&self) -> Readout {
         Readout {
             input_level: self.input_meter.level(),
+            tuner: self.tracker.tuner(),
+            notes: self.tracker.notes(),
         }
     }
 }
