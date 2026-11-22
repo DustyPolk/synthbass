@@ -79,8 +79,6 @@ fn a_chromatic_run_plays_one_voice_per_note() {
             (4.21, "extra 0.10: attack ghost"),
             (6.67, "G1 attack ghosts since chord tuning"),
             (9.38, "extra 0.11: attack ghost"),
-            (16.10, "fretted D2 reads -20 c, on the tolerance edge"),
-            (18.90, "fretted E2 reads -18 c, on the tolerance edge"),
         ],
     );
 }
@@ -106,10 +104,6 @@ fn double_stop_thirds_play_as_two_voices() {
         DOUBLE_STOPS,
         &[
             (15.65, "F2 takes about 0.9 s to settle beside D2"),
-            (
-                30.60,
-                "G1+B1 weak; open E and A strings ring louder (check the take)",
-            ),
             (32.20, "short chord: leftover notes of the previous one"),
             (33.00, "short chord: leftover notes of the previous one"),
         ],

@@ -1,9 +1,10 @@
 # chromatic-run: E string, frets 0 to 12, about 1.3 s per note
 # Drafted from the recording (onset detection + autocorrelation pitch); confirmed by the bassist.
 # 7.83-8.18 s: G1 release tail drifting toward F#1 (+21 c) at about -33 dB; left out on purpose.
-# Fretted D2 and E2 measured about 15 c flat (intonation), within tolerance.
+# Fretted intonation on this bass is 15-20 c flat high on the neck (D2 and E2 read -20 and -18 c);
+# the tolerance is 25 c so it covers them (bassist's decision, ticket 12).
 timing_tolerance 0.1
-cents_tolerance 20
+cents_tolerance 25
 
 2.96 4.19 E1
 4.21 5.47 F1

@@ -13,7 +13,8 @@ cents_tolerance 20
 27.95 28.72 D2 F#2
 28.75 29.32 D2 F#2
 29.35 29.88 D2 F#2
-30.60 32.20 G1 B1
+# 30.60-32.20 s: G1+B1 left out: the take is unusable (weakly fretted, off pitch, with open E and
+# A ringing louder than the chord), decided with the bassist (ticket 12).
 32.20 33.00 F#1 A#1
 33.00 33.75 B1 D#2
 33.85 36.10 E2 G#2
