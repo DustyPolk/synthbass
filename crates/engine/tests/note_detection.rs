@@ -299,3 +299,70 @@ fn decay_vibrato_and_slides_are_not_repicks() {
         );
     }
 }
+
+/// A1 with harmonics 1–6 at `amplitude` for `seconds_full`, after which
+/// every harmonic but the second fades out within 20 ms. The second goes on
+/// at `remnant` for `seconds_after`, unbroken.
+fn lower_partials_die_first(
+    amplitude: f32,
+    remnant: f32,
+    seconds_full: f32,
+    seconds_after: f32,
+) -> Vec<f32> {
+    let f0 = hz(33.0);
+    let fade_start = (seconds_full * SAMPLE_RATE) as usize;
+    let fade_len = (0.02 * SAMPLE_RATE) as usize;
+    let len = ((seconds_full + seconds_after) * SAMPLE_RATE) as usize;
+    (0..len)
+        .map(|n| {
+            let t = n as f32 / SAMPLE_RATE;
+            let fade = 1.0 - (n.saturating_sub(fade_start) as f32 / fade_len as f32).min(1.0);
+            (1..=6)
+                .map(|h| {
+                    let gain = if h == 2 {
+                        amplitude + (remnant - amplitude) * (1.0 - fade)
+                    } else {
+                        amplitude * fade
+                    };
+                    gain / h as f32 * (std::f32::consts::TAU * f0 * h as f32 * t).sin()
+                })
+                .sum::<f32>()
+        })
+        .collect()
+}
+
+#[test]
+fn an_upper_harmonic_left_below_the_noise_gate_does_not_keep_its_note() {
+    let mut engine = engine();
+    engine.set_noise_gate(0.05);
+    // The second harmonic stays at 0.07 / 2 = 0.035: under the gate, over
+    // the half of it the partial search keeps.
+    let dry = lower_partials_die_first(0.3, 0.07, 0.4, 0.4);
+    render(&mut engine, &dry[..(0.35 * SAMPLE_RATE) as usize], &[128]);
+    let playing = engine.readout().notes;
+    assert!(
+        playing.len() == 1 && (playing[0].pitch - 33.0).abs() < 0.1,
+        "notes before the fade {:?}",
+        &playing[..]
+    );
+    render(&mut engine, &dry[(0.35 * SAMPLE_RATE) as usize..], &[128]);
+    let readout = engine.readout();
+    assert!(readout.notes.is_empty(), "notes {:?}", &readout.notes[..]);
+}
+
+#[test]
+fn an_upper_harmonic_left_above_the_noise_gate_keeps_its_note() {
+    let mut engine = engine();
+    engine.set_noise_gate(0.05);
+    render(
+        &mut engine,
+        &lower_partials_die_first(0.3, 0.2, 0.4, 0.4),
+        &[128],
+    );
+    let notes = engine.readout().notes;
+    assert!(
+        notes.len() == 1 && (notes[0].pitch - 33.0).abs() < 0.1,
+        "notes {:?}",
+        &notes[..]
+    );
+}

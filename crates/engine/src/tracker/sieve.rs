@@ -229,12 +229,16 @@ impl Sieve {
                 // What is left of a sounding note can be one of its upper
                 // harmonics alone (a string whose lowest partials died first).
                 if !fuses && let Some(pitch) = remnant(midi, sounding, &out[..count]) {
-                    out[count] = RawNote {
-                        pitch,
-                        level: self.claim(&support),
-                        clarity: 1.0,
-                    };
-                    count += 1;
+                    let level = self.claim(&support);
+                    let duplicate = out[..count].iter().any(|n| (n.pitch - pitch).abs() < 0.5);
+                    if !duplicate && level >= gate {
+                        out[count] = RawNote {
+                            pitch,
+                            level,
+                            clarity: 1.0,
+                        };
+                        count += 1;
+                    }
                     continue;
                 }
                 let continues = !fuses
