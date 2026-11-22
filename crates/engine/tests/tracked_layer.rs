@@ -213,3 +213,41 @@ fn an_out_of_range_or_nan_noise_gate_does_not_silence_the_tracked_layer() {
         assert_eq!(voices.len(), 1, "gate {threshold}: {voices:?}");
     }
 }
+
+/// Adds a short burst of a note `sharp` semitones above `held`, starting at
+/// `at` seconds and fading out over `seconds`: an attack whose analysis
+/// briefly hears a candidate note beside the held one.
+fn add_attack(dry: &mut [f32], held: f32, sharp: f32, at: f32, seconds: f32) {
+    let start = (at * SAMPLE_RATE) as usize;
+    let burst = bass_tone(hz(held + sharp), 0.6, 1.0, seconds);
+    let len = burst.len() as f32;
+    for (i, (s, b)) in dry[start..].iter_mut().zip(burst).enumerate() {
+        *s += b * (1.0 - i as f32 / len);
+    }
+}
+
+#[test]
+fn a_held_note_keeps_its_voice_through_an_attack_beside_it() {
+    let held = 28.0;
+    let mut dry = after_settling(bass_tone(hz(held), 0.3, 1.0, 1.3));
+    add_attack(&mut dry, held, 0.55, 0.8, 0.03);
+    add_attack(&mut dry, held, 0.45, 1.2, 0.05);
+    let mut engine = engine();
+    let mut held_voice = None;
+    for (i, block) in dry.chunks(128).enumerate() {
+        render(&mut engine, block, &[128]);
+        let voices = engine.readout().voices;
+        let at_held = voices.iter().find(|v| (v.pitch - held).abs() < 1.0);
+        match (held_voice, at_held) {
+            (None, Some(voice)) => held_voice = Some(voice.id),
+            (None, None) => {}
+            (Some(id), _) => assert!(
+                voices.iter().any(|v| v.id == id),
+                "{:.3} s: the held note's voice {id} was replaced by {:?}",
+                (i * 128) as f32 / SAMPLE_RATE,
+                &voices[..]
+            ),
+        }
+    }
+    assert!(held_voice.is_some(), "the held note never got a voice");
+}

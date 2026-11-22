@@ -24,12 +24,6 @@ pub struct DetectedNote {
     pub repicks: u32,
 }
 
-impl DetectedNote {
-    pub fn frequency(&self) -> f32 {
-        440.0 * 2f32.powf((self.pitch - 69.0) / 12.0)
-    }
-}
-
 /// The notes detected right now, loudest first.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct DetectedNotes {
@@ -396,50 +390,4 @@ fn continuations(
         found[slot] = nearest;
     }
     found
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn tracked(pitch: f32, reported: bool) -> Option<Tracked> {
-        Some(Tracked {
-            note: DetectedNote {
-                pitch,
-                ..DetectedNote::default()
-            },
-            reported,
-            ..Tracked::default()
-        })
-    }
-
-    fn heard(pitch: f32) -> RawNote {
-        RawNote {
-            pitch,
-            ..RawNote::default()
-        }
-    }
-
-    #[test]
-    fn a_sounding_note_keeps_the_note_it_continues_as_over_a_pending_one_nearer_to_it() {
-        // The pending note sits in an earlier slot and is nearer to the
-        // only note heard; the sounding note must still take it, or it
-        // would expire and come back with a new id mid-note.
-        let mut slots = [None; MAX_DETECTED_NOTES];
-        slots[0] = tracked(40.4, false);
-        slots[1] = tracked(40.0, true);
-        let found = continuations(&slots, &[heard(40.25)]);
-        assert_eq!(found[1].map(|(i, _)| i), Some(0));
-        assert_eq!(found[0], None);
-    }
-
-    #[test]
-    fn a_pending_note_takes_what_the_sounding_notes_leave() {
-        let mut slots = [None; MAX_DETECTED_NOTES];
-        slots[0] = tracked(40.4, false);
-        slots[1] = tracked(40.0, true);
-        let found = continuations(&slots, &[heard(40.1), heard(40.45)]);
-        assert_eq!(found[1].map(|(i, _)| i), Some(0));
-        assert_eq!(found[0].map(|(i, _)| i), Some(1));
-    }
 }
