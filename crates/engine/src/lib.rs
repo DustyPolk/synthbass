@@ -13,7 +13,6 @@ mod tracked;
 mod tracker;
 
 use direct::DirectLayer;
-pub use ladder::LadderFilter;
 pub use limiter::LIMITER_CEILING;
 use limiter::Limiter;
 pub use param::Param;
