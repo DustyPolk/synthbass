@@ -17,7 +17,7 @@ osc2_octave = 0
 osc2_detune_cents = 0.0
 osc_mix = 0.0
 sub_level = 0.5
-cutoff_hz = 120.0
+cutoff_hz = 160.0
 resonance = 0.1
 filter_envelope_amount = 0.15
 filter_envelope_decay_s = 0.6
@@ -27,4 +27,4 @@ level = 0.9
 
 [mix]
 dry_level = 0.2
-output_level = 1.0
+output_level = 2.0
