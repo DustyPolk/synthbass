@@ -1,14 +1,13 @@
 //! The patch record: a named, versioned set of every sound parameter, and its
 //! human-readable file format.
 
-use std::collections::HashMap;
-
-use synthbass_engine::Param;
+use synthbass_engine::{Format, Param};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Patch {
     pub name: String,
-    values: HashMap<Param, f32>,
+    /// By `Param::index`.
+    values: [f32; Param::ALL.len()],
 }
 
 impl Patch {
@@ -16,20 +15,17 @@ impl Patch {
     pub fn new(name: impl Into<String>) -> Patch {
         Patch {
             name: name.into(),
-            values: Param::ALL
-                .iter()
-                .map(|&param| (param, param.default_value()))
-                .collect(),
+            values: Param::ALL.map(Param::default_value),
         }
     }
 
     pub fn get(&self, param: Param) -> f32 {
-        self.values[&param]
+        self.values[param.index()]
     }
 
     /// Sets a parameter, clamped to its range.
     pub fn set(&mut self, param: Param, value: f32) {
-        self.values.insert(param, param.clamp(value));
+        self.values[param.index()] = param.clamp(value);
     }
 
     /// The file text: `version` and `name`, then one table per section.
@@ -78,31 +74,10 @@ impl Patch {
 /// Bumped when the meaning of a field changes. Files of any version load.
 pub const PATCH_VERSION: u32 = 1;
 
-/// Where a param lives in the file: its section and key. Keys carry their
-/// unit where it is not 0..=1.
+/// Where a param lives in the file: its section and key.
 fn field(param: Param) -> (&'static str, &'static str) {
-    match param {
-        Param::DirectDrive => ("direct", "drive"),
-        Param::DirectCutoff => ("direct", "cutoff_hz"),
-        Param::DirectResonance => ("direct", "resonance"),
-        Param::DirectEnvelopeSensitivity => ("direct", "envelope_sensitivity"),
-        Param::DirectLevel => ("direct", "level"),
-        Param::TrackedOsc1Waveshape => ("tracked", "osc1_waveshape"),
-        Param::TrackedOsc2Waveshape => ("tracked", "osc2_waveshape"),
-        Param::TrackedOsc2Octave => ("tracked", "osc2_octave"),
-        Param::TrackedOsc2Detune => ("tracked", "osc2_detune_cents"),
-        Param::TrackedOscMix => ("tracked", "osc_mix"),
-        Param::TrackedSubLevel => ("tracked", "sub_level"),
-        Param::TrackedCutoff => ("tracked", "cutoff_hz"),
-        Param::TrackedResonance => ("tracked", "resonance"),
-        Param::TrackedFilterEnvelopeAmount => ("tracked", "filter_envelope_amount"),
-        Param::TrackedFilterEnvelopeDecay => ("tracked", "filter_envelope_decay_s"),
-        Param::TrackedPickSensitivity => ("tracked", "pick_sensitivity"),
-        Param::TrackedGlide => ("tracked", "glide_s"),
-        Param::TrackedLevel => ("tracked", "level"),
-        Param::DryLevel => ("mix", "dry_level"),
-        Param::OutputLevel => ("mix", "output_level"),
-    }
+    let info = param.info();
+    (info.section.key(), info.key)
 }
 
 const WAVESHAPES: [&str; 2] = ["saw", "square"];
@@ -110,11 +85,9 @@ const WAVESHAPES: [&str; 2] = ["saw", "square"];
 /// Waveshapes are written by name and octaves as whole numbers, so a file
 /// reads the way the window does.
 fn encode(param: Param, value: f32) -> toml::Value {
-    match param {
-        Param::TrackedOsc1Waveshape | Param::TrackedOsc2Waveshape => {
-            WAVESHAPES[usize::from(value >= 0.5)].into()
-        }
-        Param::TrackedOsc2Octave => (value.round() as i64).into(),
+    match param.info().format {
+        Format::Waveshape => WAVESHAPES[usize::from(value >= 0.5)].into(),
+        Format::Octave => (value.round() as i64).into(),
         // The shortest decimal that reads back as the same f32 (0.37, not
         // 0.3700000047683716).
         _ => value
@@ -128,10 +101,8 @@ fn encode(param: Param, value: f32) -> toml::Value {
 /// `None` when the value is the wrong kind or not a finite number.
 fn decode(param: Param, value: &toml::Value) -> Option<f32> {
     let number = match value {
-        toml::Value::String(name) => match param {
-            Param::TrackedOsc1Waveshape | Param::TrackedOsc2Waveshape => {
-                WAVESHAPES.iter().position(|shape| shape == name)? as f64
-            }
+        toml::Value::String(name) => match param.info().format {
+            Format::Waveshape => WAVESHAPES.iter().position(|shape| shape == name)? as f64,
             _ => return None,
         },
         toml::Value::Integer(n) => *n as f64,
@@ -149,9 +120,9 @@ mod tests {
     /// A value inside the param's range that is not its default.
     fn unusual(param: Param) -> f32 {
         let range = param.range();
-        match param {
-            Param::TrackedOsc1Waveshape | Param::TrackedOsc2Waveshape => 1.0,
-            Param::TrackedOsc2Octave => -1.0,
+        match param.info().format {
+            Format::Waveshape => 1.0,
+            Format::Octave => -1.0,
             _ => range.start() + 0.37 * (range.end() - range.start()),
         }
     }
