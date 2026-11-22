@@ -345,11 +345,7 @@ impl Tracker {
         if reported.next().is_some() || only.hops_alive < self.birth_hops + self.tuner_settle_hops {
             return None;
         }
-        let nearest = only.note.pitch.round();
-        Some(TunerReading {
-            note: nearest.clamp(0.0, 127.0) as u8,
-            cents: (only.note.pitch - nearest) * 100.0,
-        })
+        Some(TunerReading::nearest(only.note.pitch))
     }
 }
 

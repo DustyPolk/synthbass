@@ -6,6 +6,7 @@ use std::ops::Deref;
 use crate::ladder::LadderFilter;
 use crate::noise_gate::NoiseGate;
 use crate::param::{Octave, Param, Waveshape};
+use crate::pitch::midi_to_hz;
 use crate::smoothed::Smoothed;
 use crate::tracker::DetectedNote;
 
@@ -490,7 +491,7 @@ impl Voice {
             self.loudness = 0.0;
             return 0.0;
         }
-        let frequency = 440.0 * ((self.pitch + self.glide_offset - 69.0) / 12.0).exp2();
+        let frequency = midi_to_hz(self.pitch + self.glide_offset);
         let dt = frequency / self.sample_rate;
         let osc1 = self.osc1.process(dt, settings.osc1_square);
         let osc2 = self

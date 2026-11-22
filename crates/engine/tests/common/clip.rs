@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use synthbass_engine::{Engine, NoiseGate, Readout, TunerReading};
+use synthbass_engine::{Engine, NoiseGate, Readout, TunerReading, hz_to_midi, midi_to_hz};
 
 use super::Rendered;
 
@@ -224,7 +224,7 @@ fn note_hz(name: &str) -> Result<f32, String> {
         .parse()
         .map_err(|_| format!("not a note: {name:?}"))?;
     let midi = 12 * (octave + 1) + semitone + accidental;
-    Ok(440.0 * 2f32.powf((midi - 69) as f32 / 12.0))
+    Ok(midi_to_hz(midi as f32))
 }
 
 /// How well a clip run's voices match the clip's expected notes.
@@ -291,10 +291,6 @@ impl std::fmt::Display for VoiceScore {
             self.lingering_seconds
         )
     }
-}
-
-fn hz_to_midi(hz: f32) -> f32 {
-    69.0 + 12.0 * (hz / 440.0).log2()
 }
 
 /// Scores the voices in `run` against `clip`'s steady notes (slides are

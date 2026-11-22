@@ -65,15 +65,7 @@ impl SynthbassApp {
 
     /// Note name and cents, or a dash when there is no clear single note.
     fn tuner(&self, ui: &mut egui::Ui) {
-        let text = match self.readout.tuner {
-            Some(reading) => format!(
-                "{}{}  {:+.0} ¢",
-                reading.name(),
-                reading.octave(),
-                reading.cents
-            ),
-            None => "–".into(),
-        };
+        let text = tuner_text(self.readout.tuner);
         let in_tune = self.readout.tuner.is_some_and(|r| r.cents.abs() < 5.0);
         let color = if in_tune {
             egui::Color32::LIGHT_GREEN
@@ -240,20 +232,28 @@ impl eframe::App for SynthbassApp {
 
 /// Nearest note and cents, e.g. "A1 +3¢".
 fn note_name(pitch: f32) -> String {
-    let note = pitch.round().clamp(0.0, 127.0);
-    let reading = TunerReading {
-        note: note as u8,
-        cents: 100.0 * (pitch - note),
-    };
-    format!(
-        "{}{} {:+.0}¢",
-        reading.name(),
-        reading.octave(),
-        reading.cents
-    )
+    TunerReading::nearest(pitch).to_string()
+}
+
+/// The tuner's reading, or a dash when there is no clear single note.
+fn tuner_text(reading: Option<TunerReading>) -> String {
+    reading.map_or("–".into(), |r| r.to_string())
 }
 
 /// A level as a meter fill on a dB scale.
 fn meter_fill(gain: f32) -> f32 {
     ((gain_to_db(gain) - LEVEL_FLOOR_DB) / -LEVEL_FLOOR_DB).clamp(0.0, 1.0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_tuner_and_the_voice_slots_show_a_pitch_identically() {
+        for (pitch, shown) in [(33.03, "A1 +3¢"), (27.6, "E1 -40¢"), (42.0, "F♯2 +0¢")] {
+            assert_eq!(tuner_text(Some(TunerReading::nearest(pitch))), shown);
+            assert_eq!(note_name(pitch), shown);
+        }
+    }
 }

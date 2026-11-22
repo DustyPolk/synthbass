@@ -30,6 +30,16 @@ const NOTE_NAMES: [&str; 12] = [
 ];
 
 impl TunerReading {
+    /// The nearest equal-tempered note to `pitch` (fractional MIDI) and the
+    /// cents from it.
+    pub fn nearest(pitch: f32) -> Self {
+        let note = pitch.round();
+        TunerReading {
+            note: note.clamp(0.0, 127.0) as u8,
+            cents: (pitch - note) * 100.0,
+        }
+    }
+
     /// The note's name without octave, e.g. "E".
     pub fn name(&self) -> &'static str {
         NOTE_NAMES[self.note as usize % 12]
@@ -38,6 +48,13 @@ impl TunerReading {
     /// Scientific pitch octave: low E on a bass is E1.
     pub fn octave(&self) -> i32 {
         self.note as i32 / 12 - 1
+    }
+}
+
+/// Note name, octave and cents, e.g. "A1 +3¢".
+impl std::fmt::Display for TunerReading {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}{} {:+.0}¢", self.name(), self.octave(), self.cents)
     }
 }
 

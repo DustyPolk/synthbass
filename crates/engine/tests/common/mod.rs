@@ -51,7 +51,7 @@ pub mod clip;
 
 /// MIDI note number to frequency in Hz.
 pub fn hz(note: f32) -> f32 {
-    440.0 * 2f32.powf((note - 69.0) / 12.0)
+    synthbass_engine::midi_to_hz(note)
 }
 
 /// A plucked-bass-like tone: eight harmonics at 1/h amplitude with fixed

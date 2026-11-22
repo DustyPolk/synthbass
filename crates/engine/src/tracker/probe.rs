@@ -8,7 +8,8 @@
 //! - `CLIPS=a,b … probe::repicks …` lists the repicks the tracker reports.
 
 use super::Tracker;
-use super::bank::hz_to_midi;
+use crate::pitch::hz_to_midi;
+use crate::readout::TunerReading;
 
 fn load(name: &str) -> (Vec<f32>, f32) {
     let path = format!("{}/../../clips/{name}.wav", env!("CARGO_MANIFEST_DIR"));
@@ -37,18 +38,9 @@ fn span(text: &str) -> (&str, f32, f32) {
     )
 }
 
-/// A pitch as a note name and cents, e.g. `A1-19c`.
+/// A pitch as a note name and cents, e.g. `A1 -19¢`.
 fn name(midi: f32) -> String {
-    const NAMES: [&str; 12] = [
-        "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
-    ];
-    let k = midi.round() as i32;
-    format!(
-        "{}{}{:+.0}c",
-        NAMES[k.rem_euclid(12) as usize],
-        k.div_euclid(12) - 1,
-        (midi - k as f32) * 100.0
-    )
+    TunerReading::nearest(midi).to_string()
 }
 
 #[test]

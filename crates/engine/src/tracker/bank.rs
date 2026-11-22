@@ -5,6 +5,8 @@
 //! about two periods; exact pitch comes from the IF, which every band near a
 //! partial agrees on, not from which band is loudest.
 
+use crate::pitch::{hz_to_midi, midi_to_hz};
+
 /// Lowest and highest band centres as MIDI notes: D1 (below low E) to G5
 /// (twice the top of the G string, so the sieve sees its harmonics).
 pub const LOWEST_BAND: i32 = 26;
@@ -83,14 +85,6 @@ pub struct Bank {
     pos: usize,
     slow_coefficient: f32,
     recent_index: usize,
-}
-
-pub fn midi_to_hz(midi: f32) -> f32 {
-    440.0 * 2f32.powf((midi - 69.0) / 12.0)
-}
-
-pub fn hz_to_midi(hz: f32) -> f32 {
-    69.0 + 12.0 * (hz / 440.0).log2()
 }
 
 impl Bank {
