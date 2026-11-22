@@ -14,4 +14,6 @@
 - [ ] Test: a reassigned voice glides from the right source, never from its own unrelated old pitch
 - [ ] Slide, vibrato and glide-zero tests still pass
 - [ ] The glossary's **Glide** entry and ticket 08's notes in `.scratch/synthbass/issues/08-slides-bends-and-glide.md` (a `## Comments` addendum) describe the new rule
+- [ ] The remaining in-crate `tracked.rs` unit tests that feed hand-made notes (glide-related; see follow-up 03's `## Comments`) are replaced by public-interface tests and deleted, so no engine test reaches into internals (ignored diagnostics in `tracker/probe.rs` excepted)
+- [ ] Any new timer (glide memory) advances in `TrackedLayer::listen`, not `update`, so output stays identical at any block size (follow-up 04's test proves it)
 - [ ] All existing tests pass, including the recorded-clip suites, with no new exemptions

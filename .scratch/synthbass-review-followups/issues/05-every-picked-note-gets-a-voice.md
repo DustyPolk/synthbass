@@ -11,4 +11,5 @@
 - [ ] Test: with four voices sounding, a soft fifth picked note gets a voice and the quietest older voice is the one dropped (fails on the current code)
 - [ ] Test: a note appearing without a pick cannot take a voice from a louder picked note
 - [ ] The existing quietest-of-five test can no longer pass by dropping the new note
+- [ ] The in-crate `tracked.rs` unit tests that feed `TrackedLayer` hand-made notes and cover stealing or voice reuse (see follow-up 03's `## Comments`), including `a_new_note_takes_a_silent_voice_not_one_still_fading`, are replaced by public-interface tests and deleted
 - [ ] All existing tests pass, including the recorded-clip suites, with no new exemptions
