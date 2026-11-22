@@ -10,7 +10,11 @@ fn every_recorded_clip_loads() {
         let path = entry.unwrap().path();
         if path.extension().is_some_and(|e| e == "wav") {
             let clip = load_clip(&path);
-            assert!(!clip.expected.events.is_empty(), "{} has no events", path.display());
+            assert!(
+                !clip.expected.events.is_empty(),
+                "{} has no events",
+                path.display()
+            );
             n += 1;
         }
     }

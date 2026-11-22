@@ -24,7 +24,10 @@ fn voice_pitches(engine: &Engine) -> Vec<f32> {
 fn assert_pitches(actual: &[f32], expected: &[f32]) {
     assert_eq!(actual.len(), expected.len(), "voices at {actual:?}");
     for (a, e) in actual.iter().zip(expected) {
-        assert!((a - e).abs() < 0.1, "voices at {actual:?}, expected {expected:?}");
+        assert!(
+            (a - e).abs() < 0.1,
+            "voices at {actual:?}, expected {expected:?}"
+        );
     }
 }
 
@@ -41,7 +44,13 @@ fn a_tenth_plays_as_two_voices_at_their_pitches() {
 
 /// Five notes whose partials stay clear of each other's bands (E1 under a
 /// whole-tone cluster), the third quietest by far.
-const FIVE: [(f32, f32); 5] = [(28.0, 0.3), (61.0, 0.25), (63.0, 0.06), (65.0, 0.22), (67.0, 0.2)];
+const FIVE: [(f32, f32); 5] = [
+    (28.0, 0.3),
+    (61.0, 0.25),
+    (63.0, 0.06),
+    (65.0, 0.22),
+    (67.0, 0.2),
+];
 
 #[test]
 fn five_simultaneous_tones_give_four_voices_without_the_quietest() {

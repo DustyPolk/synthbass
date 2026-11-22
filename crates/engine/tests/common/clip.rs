@@ -351,7 +351,11 @@ pub fn score_voices(clip: &Clip, run: &ClipRun) -> VoiceScore {
             .readouts
             .iter()
             .filter(|(t, _)| *t > end && *t <= limit)
-            .filter(|(_, r)| r.voices.iter().any(|v| ending.iter().any(|&n| near(v.pitch, n))))
+            .filter(|(_, r)| {
+                r.voices
+                    .iter()
+                    .any(|v| ending.iter().any(|&n| near(v.pitch, n)))
+            })
             .map(|(t, _)| *t)
             .fold(end, f32::max);
         events.push(EventScore {
@@ -372,7 +376,10 @@ pub fn score_voices(clip: &Clip, run: &ClipRun) -> VoiceScore {
         let (t, readout) = &run.readouts[i];
         !expected_at(*t) && !readout.voices.is_empty()
     };
-    let ghost_seconds = (0..run.readouts.len()).filter(|&i| ghostly(i)).map(step).sum();
+    let ghost_seconds = (0..run.readouts.len())
+        .filter(|&i| ghostly(i))
+        .map(step)
+        .sum();
     let mut ghost_spans: Vec<(f32, f32)> = Vec::new();
     for i in (0..run.readouts.len()).filter(|&i| ghostly(i)) {
         let t = run.readouts[i].0;
