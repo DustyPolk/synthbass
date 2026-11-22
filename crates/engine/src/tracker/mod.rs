@@ -179,7 +179,7 @@ impl Tracker {
     }
 
     pub fn set_gate(&mut self, threshold: f32) {
-        self.gate = threshold.clamp(*NOISE_GATE_RANGE.start(), *NOISE_GATE_RANGE.end());
+        self.gate = threshold;
     }
 
     pub fn process(&mut self, dry: &[f32]) {

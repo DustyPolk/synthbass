@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
 
-use synthbass_engine::NOISE_GATE_DEFAULT;
+use synthbass_engine::{NOISE_GATE_DEFAULT, NOISE_GATE_RANGE};
 
 use crate::ports::Routing;
 
@@ -90,15 +90,27 @@ impl Settings {
             }
             Err(err) => return defaults_because(path, &err),
         };
-        match toml::from_str(&text) {
+        match toml::from_str::<Settings>(&text) {
             Ok(settings) => Loaded {
-                settings,
+                settings: settings.validated(),
                 warning: None,
             },
             // The full error spans several lines with a source excerpt; the
             // message alone fits the window.
             Err(err) => defaults_because(path, &err.message()),
         }
+    }
+
+    /// Brings hand-edited values back into range: a noise gate outside its
+    /// range is clamped, and one that is not a number becomes the default.
+    fn validated(mut self) -> Settings {
+        self.noise_gate = if self.noise_gate.is_finite() {
+            self.noise_gate
+                .clamp(*NOISE_GATE_RANGE.start(), *NOISE_GATE_RANGE.end())
+        } else {
+            NOISE_GATE_DEFAULT
+        };
+        self
     }
 
     /// Writes the file atomically (temp file, then rename), so a crash mid-write
@@ -182,6 +194,22 @@ mod tests {
         assert_eq!(loaded.last_patch, None);
         assert_eq!(loaded.noise_gate, NOISE_GATE_DEFAULT);
         assert_eq!(Settings::default().noise_gate, NOISE_GATE_DEFAULT);
+    }
+
+    #[test]
+    fn a_noise_gate_outside_its_range_loads_clamped_and_a_non_number_loads_the_default() {
+        let path = temp_path("bad-gate");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        for (written, expected) in [
+            ("5.0", *NOISE_GATE_RANGE.end()),
+            ("0.0", *NOISE_GATE_RANGE.start()),
+            ("nan", NOISE_GATE_DEFAULT),
+            ("inf", NOISE_GATE_DEFAULT),
+        ] {
+            std::fs::write(&path, format!("noise_gate = {written}\n")).unwrap();
+            let loaded = Settings::load(&path).settings;
+            assert_eq!(loaded.noise_gate, expected, "noise_gate = {written}");
+        }
     }
 
     #[test]

@@ -195,3 +195,17 @@ fn notes_above_the_noise_gate_still_play_through_the_direct_layer() {
     let out = render(&mut engine, &sine(110.0, 0.1, 0.5), &[128]).left;
     assert!(peak(&out[12_000..]) > 0.05, "{}", peak(&out[12_000..]));
 }
+
+#[test]
+fn an_out_of_range_or_nan_noise_gate_does_not_silence_the_direct_layer() {
+    for threshold in [5.0, f32::NAN, f32::INFINITY] {
+        let mut engine = direct_only();
+        engine.set_noise_gate(threshold);
+        let out = render(&mut engine, &sine(110.0, 0.4, 0.5), &[128]).left;
+        assert!(
+            peak(&out[12_000..]) > 0.05,
+            "gate {threshold}: peak {}",
+            peak(&out[12_000..])
+        );
+    }
+}

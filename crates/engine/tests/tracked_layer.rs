@@ -202,3 +202,14 @@ fn dry_signal_direct_layer_and_tracked_layer_mix_by_their_levels() {
     assert!(worst < 1e-5, "{worst}");
     assert!(peak(&all) < synthbass_engine::LIMITER_CEILING);
 }
+
+#[test]
+fn an_out_of_range_or_nan_noise_gate_does_not_silence_the_tracked_layer() {
+    for threshold in [5.0, f32::NAN, f32::INFINITY] {
+        let mut engine = tracked_only();
+        engine.set_noise_gate(threshold);
+        render(&mut engine, &bass_tone(hz(A1), 0.4, 1.0, 0.5), &[128]);
+        let voices = engine.readout().voices;
+        assert_eq!(voices.len(), 1, "gate {threshold}: {voices:?}");
+    }
+}

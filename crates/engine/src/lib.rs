@@ -87,10 +87,16 @@ impl Engine {
         }
     }
 
-    /// Sets the global noise gate threshold (linear amplitude): quieter notes
-    /// are not detected, and the direct layer is silent below it. Kept apart from sound parameters so switching
-    /// patches never changes how the app copes with room noise.
+    /// Sets the global noise gate threshold (linear amplitude), clamped to
+    /// `NOISE_GATE_RANGE`: quieter notes are not detected, and the direct
+    /// layer is silent below it. A non-finite threshold is ignored. Kept apart
+    /// from sound parameters so switching patches never changes how the app
+    /// copes with room noise.
     pub fn set_noise_gate(&mut self, threshold: f32) {
+        if !threshold.is_finite() {
+            return;
+        }
+        let threshold = threshold.clamp(*NOISE_GATE_RANGE.start(), *NOISE_GATE_RANGE.end());
         self.tracker.set_gate(threshold);
         self.tracked.set_gate(threshold);
         self.direct.set_gate(threshold);
