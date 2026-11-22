@@ -4,7 +4,7 @@
 
 **Blocked by:** None — 05 (Every picked note gets a voice) was closed as wontfix
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Context budget:** finish within one fresh context, well under 150K tokens. Read `GLOSSARY.md`, `.scratch/synthbass-review-followups/spec.md` and the relevant ADRs. This ticket runs the recorded-clip suite; keep its output to per-clip pass/fail and delegate bulky clip analysis (traces, spectra) to a subagent. If not converging by about 100K tokens, stop, record findings in a `## Comments` section and split the rest into a new ticket.
 
