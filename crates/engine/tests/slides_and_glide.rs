@@ -4,7 +4,7 @@
 mod common;
 
 use common::*;
-use synthbass_engine::{Engine, Readout};
+use synthbass_engine::{Engine, Param, Readout};
 
 /// A plucked tone (eight harmonics at 1/h, decaying) whose pitch follows
 /// `pitch(t)` (fractional MIDI) continuously, phase and all.
@@ -103,6 +103,63 @@ fn vibrato_is_tracked_within_the_clip_tolerance() {
     }
 }
 
+/// Plays A1, then D2 picked straight after it (no gap), with `glide`, and
+/// returns how long after D2 was detected a voice came within a tenth of
+/// the interval (half a semitone) of D2.
+fn time_to_reach_d2(glide: f32) -> f32 {
+    let (a1, d2) = (33.0, 38.0);
+    let mut dry = bass_tone(hz(a1), 0.4, 1.0, 0.5);
+    dry.extend(bass_tone(hz(d2), 0.4, 1.0, 0.8));
+    let mut engine = engine();
+    engine.set_param(Param::TrackedGlide, glide);
+    let readouts = readouts(&mut engine, &dry);
+    let after = |t: f32| readouts.iter().filter(move |(time, _)| *time >= t);
+    let (detected, _) = after(0.5)
+        .find(|(_, r)| r.notes.iter().any(|n| (n.pitch - d2).abs() < 0.5))
+        .expect("D2 never detected");
+    let (reached, _) = after(*detected)
+        .find(|(_, r)| r.voices.iter().any(|v| (v.pitch - d2).abs() <= 0.5))
+        .expect("no voice reached D2");
+    reached - detected
+}
+
+#[test]
+fn glide_zero_follows_a_new_pitch_at_once() {
+    let time = time_to_reach_d2(0.0);
+    assert!(time <= 0.005, "{time:.3} s");
+}
+
+#[test]
+fn longer_glide_reaches_a_new_pitch_proportionally_later() {
+    let short = time_to_reach_d2(0.1);
+    let long = time_to_reach_d2(0.2);
+    // Glide is the time to cover nine tenths of the interval.
+    assert!((short - 0.1).abs() <= 0.02, "glide 0.1: {short:.3} s");
+    assert!((long - 0.2).abs() <= 0.03, "glide 0.2: {long:.3} s");
+}
+
+#[test]
+fn notes_picked_together_do_not_glide_into_each_other() {
+    // A tenth, E1 + G#2: its voices are the same with a long glide as
+    // without.
+    let low = bass_tone(hz(28.0), 0.3, 1.0, 0.6);
+    let high = bass_tone(hz(44.0), 0.3, 1.0, 0.6);
+    let dry: Vec<f32> = low.iter().zip(&high).map(|(a, b)| a + b).collect();
+    let voices = |glide: f32| {
+        let mut engine = engine();
+        engine.set_param(Param::TrackedGlide, glide);
+        readouts(&mut engine, &dry)
+            .into_iter()
+            .map(|(t, r)| (t, r.voices.iter().map(|v| v.pitch).collect::<Vec<f32>>()))
+            .collect::<Vec<_>>()
+    };
+    for ((t, without), (_, with)) in voices(0.0).iter().zip(&voices(0.5)) {
+        let same = without.len() == with.len()
+            && without.iter().zip(with).all(|(a, b)| (a - b).abs() < 0.01);
+        assert!(same, "{t:.3}s: {without:?} vs {with:?}");
+    }
+}
+
 /// `TRACE=clip:t0:t1`: prints the notes and voices whenever a voice or
 /// note starts or ends, or a voice moves by a quarter semitone.
 #[test]
@@ -117,10 +174,21 @@ fn trace_clip() {
     for (t, r) in run.readouts.iter().filter(|(t, _)| *t >= t0 && *t <= t1) {
         let now: Vec<(u32, f32)> = r.voices.iter().map(|v| (v.id, v.pitch)).collect();
         let changed = now.len() != last.len()
-            || now.iter().zip(&last).any(|(a, b)| a.0 != b.0 || (a.1 - b.1).abs() > 0.25);
+            || now
+                .iter()
+                .zip(&last)
+                .any(|(a, b)| a.0 != b.0 || (a.1 - b.1).abs() > 0.25);
         if changed {
-            let n: Vec<String> = r.notes.iter().map(|n| format!("#{}:{:.2}", n.id, n.pitch)).collect();
-            let v: Vec<String> = r.voices.iter().map(|v| format!("v{}:{:.2}@{:.3}", v.id, v.pitch, v.loudness)).collect();
+            let n: Vec<String> = r
+                .notes
+                .iter()
+                .map(|n| format!("#{}:{:.2}", n.id, n.pitch))
+                .collect();
+            let v: Vec<String> = r
+                .voices
+                .iter()
+                .map(|v| format!("v{}:{:.2}@{:.3}", v.id, v.pitch, v.loudness))
+                .collect();
             println!("{t:.3} {} | {}", n.join(" "), v.join(" "));
             last = now;
         }

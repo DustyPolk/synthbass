@@ -43,6 +43,12 @@ pub struct TrackedLayer {
     voices: [Voice; MAX_VOICES],
     /// The id the next voice to start gets.
     next_voice_id: u32,
+    /// The voice that started most recently, and how many samples ago.
+    newest: Option<usize>,
+    samples_since_newest: usize,
+    /// A voice must have started this many samples before a new one to be
+    /// the one it glides from.
+    glide_source_samples: usize,
     string: StringLevel,
     gate: f32,
     waveshape: Smoothed,
@@ -58,6 +64,8 @@ pub struct TrackedLayer {
     envelope_amount: Smoothed,
     envelope_decay: Smoothed,
     pick_sensitivity: Smoothed,
+    /// Seconds a voice takes to cover nine tenths of a jump to a new note.
+    glide: f32,
     level: Smoothed,
     sample_rate: f32,
 }
@@ -79,6 +87,8 @@ struct Sound {
     /// Per-sample multiplier of the envelope's fall.
     envelope_decay: f32,
     pick_sensitivity: f32,
+    /// Per-sample multiplier of the distance left to glide.
+    glide_decay: f32,
 }
 
 impl TrackedLayer {
@@ -86,6 +96,9 @@ impl TrackedLayer {
         TrackedLayer {
             voices: std::array::from_fn(|i| Voice::new(sample_rate, i as u32)),
             next_voice_id: 0,
+            newest: None,
+            samples_since_newest: usize::MAX,
+            glide_source_samples: (GLIDE_SOURCE_SECONDS * sample_rate) as usize,
             string: StringLevel::new(sample_rate),
             gate: NOISE_GATE_DEFAULT,
             waveshape: Smoothed::new(Param::TrackedOsc1Waveshape.default_value(), sample_rate),
@@ -116,6 +129,7 @@ impl TrackedLayer {
                 Param::TrackedPickSensitivity.default_value(),
                 sample_rate,
             ),
+            glide: Param::TrackedGlide.default_value(),
             level: Smoothed::new(Param::TrackedLevel.default_value(), sample_rate),
             sample_rate,
         }
@@ -143,6 +157,7 @@ impl TrackedLayer {
             Param::TrackedFilterEnvelopeAmount => self.envelope_amount.set_target(value),
             Param::TrackedFilterEnvelopeDecay => self.envelope_decay.set_target(value),
             Param::TrackedPickSensitivity => self.pick_sensitivity.set_target(value),
+            Param::TrackedGlide => self.glide = value,
             _ => debug_assert!(false, "{param:?} is not a tracked layer param"),
         }
     }
@@ -179,12 +194,30 @@ impl TrackedLayer {
             };
             playing[slot] = Some(note);
         }
-        for (voice, note) in self.voices.iter_mut().zip(playing) {
-            if !voice.sounding && note.is_some() {
+        // Glide: a new voice slides in from the pitch of the voice that
+        // started before it, like a Moog playing a line legato. Not from one
+        // that started just now: notes picked together (a double stop)
+        // don't glide into each other.
+        let glide_from = self
+            .newest
+            .filter(|_| self.glide > 0.0 && self.samples_since_newest >= self.glide_source_samples)
+            .and_then(|i| self.voices[i].reading())
+            .map(|reading| reading.pitch);
+        self.samples_since_newest = self.samples_since_newest.saturating_add(dry.len());
+        for (i, (voice, note)) in self.voices.iter_mut().zip(playing).enumerate() {
+            let starting = !voice.sounding && note.is_some();
+            if starting {
                 self.next_voice_id = self.next_voice_id.wrapping_add(1);
                 voice.id = self.next_voice_id;
             }
             voice.update(note, string_level);
+            if starting {
+                if let Some(pitch) = glide_from {
+                    voice.glide_from(pitch);
+                }
+                self.newest = Some(i);
+                self.samples_since_newest = 0;
+            }
         }
     }
 
@@ -217,6 +250,11 @@ impl TrackedLayer {
                 / (self.envelope_decay.next() * self.sample_rate))
                 .exp(),
             pick_sensitivity: self.pick_sensitivity.next(),
+            glide_decay: if self.glide > 0.0 {
+                (-std::f32::consts::LN_10 / (self.glide * self.sample_rate)).exp()
+            } else {
+                0.0
+            },
         };
         let mix: f32 = self.voices.iter_mut().map(|v| v.process(&sound)).sum();
         mix * self.level.next()
@@ -231,6 +269,10 @@ impl TrackedLayer {
         voices
     }
 }
+
+/// A voice glides only from a voice that started at least this long before
+/// it.
+const GLIDE_SOURCE_SECONDS: f32 = 0.05;
 
 /// A new note must be this much louder than the quietest voice's note to
 /// take its voice, so two notes of about equal level don't trade a voice
@@ -282,8 +324,13 @@ struct Voice {
     /// The `repicks` count of the note when the filter envelope last fired.
     repicks: u32,
     sounding: bool,
+    /// The note's pitch, smoothed only to remove the tracker's hop steps.
     pitch: f32,
     target_pitch: f32,
+    /// Semitones from `pitch` still to glide away; falls to 0 at the glide
+    /// rate. Glide applies only when the voice changes note, so slides and
+    /// vibrato within a note come through exactly.
+    glide_offset: f32,
     loudness: f32,
     target_loudness: f32,
     pitch_coefficient: f32,
@@ -309,6 +356,7 @@ impl Voice {
             sounding: false,
             pitch: 0.0,
             target_pitch: 0.0,
+            glide_offset: 0.0,
             loudness: 0.0,
             target_loudness: 0.0,
             pitch_coefficient: coefficient(PITCH_SMOOTHING_SECONDS),
@@ -328,9 +376,16 @@ impl Voice {
     fn update(&mut self, note: Option<&DetectedNote>, string_level: f32) {
         match note {
             Some(note) => {
+                if self.sounding && self.note_id != Some(note.id) {
+                    // A new note on a sounding voice: jump to it, then
+                    // glide the distance from where the voice was.
+                    self.glide_offset += self.pitch - note.pitch;
+                    self.pitch = note.pitch;
+                }
                 if !self.sounding {
                     // A voice starts at its note's pitch and from silence.
                     self.pitch = note.pitch;
+                    self.glide_offset = 0.0;
                     self.filter.reset();
                     self.envelope = FilterEnvelope::new(self.sample_rate);
                     // Starting the sub with oscillator 1 keeps it locked
@@ -369,6 +424,7 @@ impl Voice {
             return 0.0;
         }
         self.pitch = self.target_pitch + (self.pitch - self.target_pitch) * self.pitch_coefficient;
+        self.glide_offset *= sound.glide_decay;
         self.loudness = self.target_loudness
             + (self.loudness - self.target_loudness) * self.loudness_coefficient;
         if self.note_id.is_none() && self.loudness < SILENT {
@@ -376,7 +432,7 @@ impl Voice {
             self.loudness = 0.0;
             return 0.0;
         }
-        let frequency = 440.0 * ((self.pitch - 69.0) / 12.0).exp2();
+        let frequency = 440.0 * ((self.pitch + self.glide_offset - 69.0) / 12.0).exp2();
         let dt = frequency / self.sample_rate;
         let osc1 = self.osc.process(dt, sound.osc1_square);
         let osc2 = self.osc2.process(dt * sound.osc2_ratio, sound.osc2_square);
@@ -391,10 +447,15 @@ impl Voice {
         self.filter.process(mix) * self.loudness
     }
 
+    /// Starts gliding from `pitch` to the voice's note.
+    fn glide_from(&mut self, pitch: f32) {
+        self.glide_offset = pitch - self.pitch;
+    }
+
     fn reading(&self) -> Option<VoiceReading> {
         self.sounding.then_some(VoiceReading {
             id: self.id,
-            pitch: self.pitch,
+            pitch: self.pitch + self.glide_offset,
             loudness: self.loudness,
         })
     }
@@ -632,6 +693,7 @@ mod tests {
             envelope_octaves: ENVELOPE_OCTAVES,
             envelope_decay: (-std::f32::consts::LN_10 / (0.1 * SAMPLE_RATE)).exp(),
             pick_sensitivity: 0.0,
+            glide_decay: 0.0,
         }
     }
 

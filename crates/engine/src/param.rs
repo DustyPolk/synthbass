@@ -3,7 +3,7 @@ use std::ops::RangeInclusive;
 /// A sound parameter the engine accepts changes to. Levels are linear gains;
 /// drive, resonance and envelope sensitivity are 0..=1; cutoff is in Hz;
 /// a waveshape is 0 (saw) or 1 (square); an octave is −1, 0 or +1; detune
-/// is in cents; a decay is in seconds.
+/// is in cents; a decay or a glide is in seconds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Param {
     DryLevel,
@@ -26,11 +26,14 @@ pub enum Param {
     TrackedFilterEnvelopeAmount,
     TrackedFilterEnvelopeDecay,
     TrackedPickSensitivity,
+    /// Time a voice takes to cover nine tenths of the way to a new note's
+    /// pitch (Moog portamento); 0 jumps at once.
+    TrackedGlide,
     TrackedLevel,
 }
 
 impl Param {
-    pub const ALL: [Param; 19] = [
+    pub const ALL: [Param; 20] = [
         Param::DryLevel,
         Param::OutputLevel,
         Param::DirectDrive,
@@ -49,6 +52,7 @@ impl Param {
         Param::TrackedFilterEnvelopeAmount,
         Param::TrackedFilterEnvelopeDecay,
         Param::TrackedPickSensitivity,
+        Param::TrackedGlide,
         Param::TrackedLevel,
     ];
 
@@ -74,6 +78,7 @@ impl Param {
             Param::TrackedFilterEnvelopeAmount => 0.0..=1.0,
             Param::TrackedFilterEnvelopeDecay => 0.02..=2.0,
             Param::TrackedPickSensitivity => 0.0..=1.0,
+            Param::TrackedGlide => 0.0..=1.0,
             Param::TrackedLevel => 0.0..=1.0,
         }
     }
@@ -101,6 +106,7 @@ impl Param {
             Param::TrackedFilterEnvelopeAmount => 0.5,
             Param::TrackedFilterEnvelopeDecay => 0.3,
             Param::TrackedPickSensitivity => 0.5,
+            Param::TrackedGlide => 0.0,
             // Off until turned up, like the direct layer.
             Param::TrackedLevel => 0.0,
         }

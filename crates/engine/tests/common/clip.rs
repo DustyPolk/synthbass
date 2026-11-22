@@ -490,8 +490,7 @@ pub fn score_slides(clip: &Clip, run: &ClipRun) -> Vec<SlideScore> {
                 .map(|(_, p)| *p)
                 .collect();
             pitches.sort_by(f32::total_cmp);
-            (!pitches.is_empty())
-                .then(|| 100.0 * (pitches[pitches.len() / 2] - hz_to_midi(target)))
+            (!pitches.is_empty()).then(|| 100.0 * (pitches[pitches.len() / 2] - hz_to_midi(target)))
         };
         scores.push(SlideScore {
             onset: event.onset,

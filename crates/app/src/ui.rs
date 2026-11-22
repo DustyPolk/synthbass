@@ -120,6 +120,9 @@ impl SynthbassApp {
             Param::TrackedFilterEnvelopeDecay => slider
                 .logarithmic(true)
                 .custom_formatter(|seconds, _| format!("{:.0} ms", seconds * 1000.0)),
+            Param::TrackedGlide => {
+                slider.custom_formatter(|seconds, _| format!("{:.0} ms", seconds * 1000.0))
+            }
         };
         if ui.add(slider).changed() {
             self.send(param);
@@ -240,6 +243,7 @@ impl eframe::App for SynthbassApp {
                     "Filter envelope decay",
                 );
                 self.knob(ui, Param::TrackedPickSensitivity, "Pick sensitivity");
+                self.knob(ui, Param::TrackedGlide, "Glide");
                 self.knob(ui, Param::TrackedLevel, "Tracked layer level");
                 self.voices(ui);
                 ui.add_space(8.0);

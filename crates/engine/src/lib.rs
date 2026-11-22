@@ -81,6 +81,7 @@ impl Engine {
             | Param::TrackedResonance
             | Param::TrackedFilterEnvelopeAmount
             | Param::TrackedFilterEnvelopeDecay
+            | Param::TrackedGlide
             | Param::TrackedPickSensitivity
             | Param::TrackedLevel => self.tracked.set_param(param, value),
         }
