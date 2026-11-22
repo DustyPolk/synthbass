@@ -7,7 +7,7 @@ use crate::tracker::DetectedNotes;
 pub struct Readout {
     /// Peak level of the dry signal (linear, 1.0 = full scale), falling back
     /// smoothly after the signal stops.
-    pub input_level: f32,
+    pub dry_signal_peak: f32,
     /// The single note being played and how far it is from equal
     /// temperament, or `None` when there is no clear single note.
     pub tuner: Option<TunerReading>,

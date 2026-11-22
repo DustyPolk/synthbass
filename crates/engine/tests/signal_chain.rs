@@ -76,7 +76,7 @@ fn mid_stream_level_changes_do_not_click() {
 }
 
 #[test]
-fn loud_input_at_max_output_level_never_exceeds_the_limiter_ceiling() {
+fn loud_dry_signal_at_max_output_level_never_exceeds_the_limiter_ceiling() {
     let mut engine = engine();
     engine.set_param(Param::OutputLevel, *Param::OutputLevel.range().end());
     // A hot square wave well past full scale, with a sudden onset.

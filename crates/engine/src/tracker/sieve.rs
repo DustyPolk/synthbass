@@ -27,19 +27,20 @@ const OWNER_HARMONICS: usize = 8;
 /// A possible owner with at least this fraction of the candidate's
 /// fundamental level in the bank is worth checking.
 const OWNER_ENERGY: f32 = 0.3;
-/// "Lower" means more than a semitone below.
-const LOWER: f32 = 0.943;
+/// A lower fundamental lies under this fraction of the candidate's: more than
+/// a semitone below.
+const SEMITONE_BELOW_RATIO: f32 = 0.943;
 /// A candidate is a harmonic if its owner is this much more periodic.
 const OWNER_MARGIN: f32 = 0.15;
 /// Once the bands' IF agrees with the periodicity estimate this closely
 /// (semitones) the bands have settled, and their IF is the more exact.
-const SETTLED: f32 = 0.5;
+const PERIODICITY_AGREEMENT: f32 = 0.5;
 /// A band settles once its fast IF comes this close (semitones) to its slow
-/// IF, and stays settled until they are `MOVING` apart: beating with a close
-/// neighbour swings the fast IF further than a slide or a new note
-/// would let it settle.
-const SETTLING: f32 = 0.35;
-const MOVING: f32 = 1.0;
+/// IF, and stays settled until they are `UNSETTLE_DISTANCE` apart: beating
+/// with a close neighbour swings the fast IF further than a slide or a new
+/// note would let it settle.
+const SETTLE_DISTANCE: f32 = 0.35;
+const UNSETTLE_DISTANCE: f32 = 1.0;
 /// A neighbouring band whose slow IF agrees with a band's this closely
 /// (semitones) hears the same partial: the attack's ringing at each band's
 /// own centre has died away.
@@ -51,13 +52,13 @@ const NEIGHBOUR_AGREEMENT: f32 = 0.25;
 const QUIET_NEIGHBOUR: f32 = 0.3;
 /// Adjacent bands whose IFs are closer than this (semitones) hear the same
 /// partial.
-const SAME_PARTIAL: f32 = 0.5;
+const SAME_PARTIAL_DISTANCE: f32 = 0.5;
 /// A settled note whose periodicity estimate is at least this clear is a
 /// note on its own, where that estimate is exact to a few cents.
-const CLEAR: f32 = 0.9;
+const FOLLOW_CLARITY: f32 = 0.9;
 /// Crossing a fret blurs the periodicity for a moment: a note already
 /// moving keeps following down to this clarity.
-const STILL_CLEAR: f32 = 0.75;
+const KEEP_FOLLOWING_CLARITY: f32 = 0.75;
 /// The slow IF lags a slide or a bend by about 60 ms (more with the bank's
 /// own delay on low notes). Once a clear note's periodicity estimate leads
 /// its slow IF by more than `FOLLOW_FROM` semitones the note is moving, and
@@ -90,7 +91,7 @@ const SPARSE_FLOOR: f32 = 0.5;
 const SPARSE_FLOOR_AT_PICK: f32 = 0.75;
 /// A sparse candidate this close (semitones) to a sounding note continues
 /// it.
-const CONTINUES: f32 = 0.5;
+const CONTINUATION_DISTANCE: f32 = 0.5;
 /// Intervals (semitones) above a louder note at which a sparse candidate
 /// fuses with it rather than continuing a note: fifth, octave, twelfth.
 const FUSING_INTERVALS: [f32; 3] = [7.0, 12.0, 19.0];
@@ -99,7 +100,7 @@ const FUSING_INTERVALS: [f32; 3] = [7.0, 12.0, 19.0];
 const REMNANT_HARMONICS: usize = 4;
 /// A still note whose refined pitch lies this far (semitones) from the
 /// partials that made it is not the note they belong to.
-const STRAYED: f32 = 1.0;
+const STRAY_DISTANCE: f32 = 1.0;
 /// A note weaker than this fraction of the strongest one is a ghost.
 const RELATIVE_FLOOR: f32 = 0.15;
 
@@ -246,7 +247,7 @@ impl Sieve {
                 let continues = !fuses
                     && sounding
                         .iter()
-                        .any(|&pitch| (pitch - midi).abs() <= CONTINUES);
+                        .any(|&pitch| (pitch - midi).abs() <= CONTINUATION_DISTANCE);
                 let floor = if picked {
                     SPARSE_FLOOR_AT_PICK
                 } else {
@@ -274,7 +275,7 @@ impl Sieve {
             // enough to carry it on.
             let continues_sounding = sounding
                 .iter()
-                .any(|&pitch| (pitch - hz_to_midi(f0)).abs() <= CONTINUES);
+                .any(|&pitch| (pitch - hz_to_midi(f0)).abs() <= CONTINUATION_DISTANCE);
             let carried_on = count > 0 && settled_partials > 0 && continues_sounding;
             // A louder attack beside a sounding note leaves too little of the
             // note's energy in the older half of any periodicity span for a
@@ -318,18 +319,20 @@ impl Sieve {
             // holds a partial halfway, nobody's note. Right after a pick the
             // disturbed analysis of a sounding note jumps like this too, and
             // that jump is how its repick is found.
-            let strayed = !picked && !refined.moving && (pitch - hz_to_midi(f0)).abs() > STRAYED;
+            let strayed =
+                !picked && !refined.moving && (pitch - hz_to_midi(f0)).abs() > STRAY_DISTANCE;
             if duplicate || level < gate || strayed {
                 continue;
             }
             // The periodicity search spans ±1.5 semitones and can lock onto
             // a note beside this one (a new note's attack beside the lagging
             // bands of the note before it).
-            let own_clarity = if (hz_to_midi(periodicity.freq) - pitch).abs() <= SETTLED {
-                periodicity.clarity
-            } else {
-                0.0
-            };
+            let own_clarity =
+                if (hz_to_midi(periodicity.freq) - pitch).abs() <= PERIODICITY_AGREEMENT {
+                    periodicity.clarity
+                } else {
+                    0.0
+                };
             out[count] = RawNote {
                 pitch,
                 level,
@@ -412,8 +415,8 @@ impl Sieve {
             .map(|h| f0 / h as f32)
             .take_while(|&owner| owner >= F0_RANGE.0)
             .filter(|&owner| bank.amplitude_at(owner) >= OWNER_ENERGY * level);
-        let top = (hz_to_midi(f0 * LOWER).floor() as i32 - LOWEST_BAND).clamp(0, BAND_COUNT as i32)
-            as usize;
+        let top = (hz_to_midi(f0 * SEMITONE_BELOW_RATIO).floor() as i32 - LOWEST_BAND)
+            .clamp(0, BAND_COUNT as i32) as usize;
         // Each periodicity search spans ±1.5 semitones, so every third band
         // covers the range below.
         let lower_bands = (0..top)
@@ -467,13 +470,13 @@ impl Sieve {
         }
         for band in 0..BAND_COUNT {
             let slow = hz_to_midi(self.slow[band]);
-            let moving = if self.settled[band] && !bank.restarted(band) {
-                MOVING
+            let max_distance = if self.settled[band] && !bank.restarted(band) {
+                UNSETTLE_DISTANCE
             } else {
-                SETTLING
+                SETTLE_DISTANCE
             };
             self.settled[band] = self.slow[band] > 0.0
-                && (hz_to_midi(fast[band]) - slow).abs() <= moving
+                && (hz_to_midi(fast[band]) - slow).abs() <= max_distance
                 && neighbours(band).any(|b| {
                     (hz_to_midi(self.slow[b]) - slow).abs() <= NEIGHBOUR_AGREEMENT
                         || amp[b] <= QUIET_NEIGHBOUR * amp[band]
@@ -507,7 +510,7 @@ impl Sieve {
             // harmonics) are both kept.
             if let Some(last) = self.partial_count.checked_sub(1)
                 && self.partials[last].band + 1 == band
-                && (hz_to_midi(freq) - hz_to_midi(self.partials[last].freq) < SAME_PARTIAL
+                && (hz_to_midi(freq) - hz_to_midi(self.partials[last].freq) < SAME_PARTIAL_DISTANCE
                     || !self.settled[band]
                     || !self.settled[band - 1])
             {
@@ -665,12 +668,12 @@ impl Sieve {
                 clarity = near.clarity;
             }
         }
-        let clear = if self.moving_hops > 0 {
-            STILL_CLEAR
+        let min_clarity = if self.moving_hops > 0 {
+            KEEP_FOLLOWING_CLARITY
         } else {
-            CLEAR
+            FOLLOW_CLARITY
         };
-        if clarity < clear {
+        if clarity < min_clarity {
             return still;
         }
         let lead = periodic_pitch - slow_pitch;
@@ -704,7 +707,7 @@ impl Sieve {
             return periodic_pitch;
         }
         let banded_pitch = hz_to_midi(weighted / weight);
-        if (banded_pitch - periodic_pitch).abs() <= SETTLED {
+        if (banded_pitch - periodic_pitch).abs() <= PERIODICITY_AGREEMENT {
             banded_pitch
         } else {
             periodic_pitch

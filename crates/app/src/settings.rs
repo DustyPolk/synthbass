@@ -17,8 +17,7 @@ pub struct Settings {
     pub ports: Routing,
     /// The patch loaded when the app last ran; `None` on a first launch.
     pub last_patch: Option<String>,
-    /// The global noise gate. Not part of any patch: it belongs to the room,
-    /// not the sound.
+    /// The global noise gate. Not part of any patch: it belongs to the room.
     #[serde(with = "noise_gate_field")]
     pub noise_gate: NoiseGate,
 }

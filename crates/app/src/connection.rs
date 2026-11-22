@@ -169,7 +169,7 @@ impl Supervisor {
         {
             // The engine's oscillators and filters are tuned for the old
             // rate; a new client gets an engine built for the new one, and
-            // the shared sound params bring it up to the current patch.
+            // the shared patch brings it up to date.
             self.drop_client();
         }
         if self.client.is_none() && !self.open() {

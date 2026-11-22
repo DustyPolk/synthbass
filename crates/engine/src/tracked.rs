@@ -59,7 +59,7 @@ pub struct TrackedLayer {
     glide_memory_samples: usize,
     string: StringLevel,
     gate: f32,
-    waveshape: Smoothed,
+    osc1_waveshape: Smoothed,
     osc2_waveshape: Smoothed,
     osc2_tuning: Osc2Tuning,
     osc_mix: Smoothed,
@@ -75,8 +75,8 @@ pub struct TrackedLayer {
     sample_rate: f32,
 }
 
-/// The tracked layer's sound settings for one sample, shared by every voice.
-struct Sound {
+/// The tracked layer's patch settings for one sample, shared by every voice.
+struct VoiceSettings {
     /// Oscillator 1 from saw (0) to square (1).
     osc1_square: f32,
     osc2_square: f32,
@@ -109,7 +109,7 @@ impl TrackedLayer {
             glide_memory_samples: (GLIDE_MEMORY_SECONDS * sample_rate) as usize,
             string: StringLevel::new(sample_rate),
             gate: NoiseGate::default().threshold(),
-            waveshape: Smoothed::new(Param::TrackedOsc1Waveshape.default_value(), sample_rate),
+            osc1_waveshape: Smoothed::new(Param::TrackedOsc1Waveshape.default_value(), sample_rate),
             osc2_waveshape: Smoothed::new(Param::TrackedOsc2Waveshape.default_value(), sample_rate),
             osc2_tuning: Osc2Tuning::new(sample_rate),
             osc_mix: Smoothed::new(Param::TrackedOscMix.default_value(), sample_rate),
@@ -139,7 +139,7 @@ impl TrackedLayer {
     pub fn set_param(&mut self, param: Param, value: f32) {
         match param {
             Param::TrackedOsc1Waveshape => self
-                .waveshape
+                .osc1_waveshape
                 .set_target(Waveshape::from_value(value).value()),
             Param::TrackedOsc2Waveshape => self
                 .osc2_waveshape
@@ -251,8 +251,8 @@ impl TrackedLayer {
     }
 
     pub fn process(&mut self) -> f32 {
-        let sound = Sound {
-            osc1_square: self.waveshape.next(),
+        let settings = VoiceSettings {
+            osc1_square: self.osc1_waveshape.next(),
             osc2_square: self.osc2_waveshape.next(),
             osc2_ratio: self.osc2_tuning.next_ratio(),
             osc_mix: self.osc_mix.next(),
@@ -271,7 +271,7 @@ impl TrackedLayer {
                 0.0
             },
         };
-        let mix: f32 = self.voices.iter_mut().map(|v| v.process(&sound)).sum();
+        let mix: f32 = self.voices.iter_mut().map(|v| v.process(&settings)).sum();
         mix * self.level.next()
     }
 
@@ -393,7 +393,7 @@ struct Voice {
     target_loudness: f32,
     pitch_coefficient: f32,
     loudness_coefficient: f32,
-    osc: Oscillator,
+    osc1: Oscillator,
     osc2: Oscillator,
     sub: Oscillator,
     filter: LadderFilter,
@@ -419,7 +419,7 @@ impl Voice {
             target_loudness: 0.0,
             pitch_coefficient: coefficient(PITCH_SMOOTHING_SECONDS),
             loudness_coefficient: coefficient(LOUDNESS_SMOOTHING_SECONDS),
-            osc: Oscillator::default(),
+            osc1: Oscillator::default(),
             osc2: Oscillator::default(),
             sub: Oscillator::default(),
             filter: LadderFilter::new(sample_rate),
@@ -448,7 +448,7 @@ impl Voice {
                     self.envelope = FilterEnvelope::new(self.sample_rate);
                     // Starting the sub with oscillator 1 keeps it locked
                     // an octave below.
-                    self.osc = Oscillator::default();
+                    self.osc1 = Oscillator::default();
                     self.sub = Oscillator::default();
                     // Oscillator 2 starts at a fresh phase each note, so a
                     // detuned unison never starts out cancelling.
@@ -477,12 +477,12 @@ impl Voice {
         }
     }
 
-    fn process(&mut self, sound: &Sound) -> f32 {
+    fn process(&mut self, settings: &VoiceSettings) -> f32 {
         if !self.sounding {
             return 0.0;
         }
         self.pitch = self.target_pitch + (self.pitch - self.target_pitch) * self.pitch_coefficient;
-        self.glide_offset *= sound.glide_decay;
+        self.glide_offset *= settings.glide_decay;
         self.loudness = self.target_loudness
             + (self.loudness - self.target_loudness) * self.loudness_coefficient;
         if self.note_id.is_none() && self.loudness < SILENT {
@@ -492,16 +492,19 @@ impl Voice {
         }
         let frequency = 440.0 * ((self.pitch + self.glide_offset - 69.0) / 12.0).exp2();
         let dt = frequency / self.sample_rate;
-        let osc1 = self.osc.process(dt, sound.osc1_square);
-        let osc2 = self.osc2.process(dt * sound.osc2_ratio, sound.osc2_square);
+        let osc1 = self.osc1.process(dt, settings.osc1_square);
+        let osc2 = self
+            .osc2
+            .process(dt * settings.osc2_ratio, settings.osc2_square);
         let sub = self.sub.process(0.5 * dt, 1.0);
-        let oscillators = osc1 + (osc2 - osc1) * sound.osc_mix;
-        let mix = (oscillators + sound.sub_level * sub) / (1.0 + sound.sub_level);
-        let envelope = self.envelope.process(sound.envelope_decay);
-        let pick = 1.0 - sound.pick_sensitivity * (1.0 - self.envelope.velocity);
-        let octaves = sound.envelope_octaves * pick * envelope;
-        self.filter.set_cutoff((sound.log2_cutoff + octaves).exp2());
-        self.filter.set_resonance(sound.resonance);
+        let oscillators = osc1 + (osc2 - osc1) * settings.osc_mix;
+        let mix = (oscillators + settings.sub_level * sub) / (1.0 + settings.sub_level);
+        let envelope = self.envelope.process(settings.envelope_decay);
+        let pick = 1.0 - settings.pick_sensitivity * (1.0 - self.envelope.velocity);
+        let octaves = settings.envelope_octaves * pick * envelope;
+        self.filter
+            .set_cutoff((settings.log2_cutoff + octaves).exp2());
+        self.filter.set_resonance(settings.resonance);
         self.filter.process(mix) * self.loudness
     }
 

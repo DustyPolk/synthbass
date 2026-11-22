@@ -36,7 +36,7 @@ pub struct Engine {
     output_level: Smoothed,
     direct: DirectLayer,
     limiter: Limiter,
-    input_meter: PeakMeter,
+    dry_signal_meter: PeakMeter,
     tracker: Tracker,
     tracked: TrackedLayer,
     /// Samples of dry signal until the voices next take the tracker's notes.
@@ -59,7 +59,7 @@ impl Engine {
             output_level: Smoothed::new(Param::OutputLevel.default_value(), sample_rate),
             direct: DirectLayer::new(sample_rate),
             limiter: Limiter::new(sample_rate),
-            input_meter: PeakMeter::new(sample_rate),
+            dry_signal_meter: PeakMeter::new(sample_rate),
             tracker: Tracker::new(sample_rate),
             tracked: TrackedLayer::new(sample_rate),
             until_voice_update: 0,
@@ -139,7 +139,7 @@ impl Engine {
             self.tracker.process(dry);
             self.tracked.listen(dry);
             for ((&d, l), r) in dry.iter().zip(left.iter_mut()).zip(right.iter_mut()) {
-                self.input_meter.process(d);
+                self.dry_signal_meter.process(d);
                 let mix =
                     d * self.dry_level.next() + self.direct.process(d) + self.tracked.process();
                 let out = self.limiter.process(mix * self.output_level.next());
@@ -151,7 +151,7 @@ impl Engine {
 
     pub fn readout(&self) -> Readout {
         Readout {
-            input_level: self.input_meter.level(),
+            dry_signal_peak: self.dry_signal_meter.level(),
             tuner: self.tracker.tuner(),
             notes: self.tracker.notes(),
             voices: self.tracked.voices(),

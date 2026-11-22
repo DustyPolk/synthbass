@@ -1,4 +1,4 @@
-//! The window: patch section, tuner, input meter and noise gate, direct
+//! The window: patch section, tuner, dry signal meter and noise gate, direct
 //! layer, tracked layer with its active voices, mix knobs, and connection
 //! section.
 
@@ -11,7 +11,7 @@ use synthbass_engine::{
     Waveshape, gain_to_db,
 };
 
-use crate::audio::{SharedNoiseGate, SoundParams};
+use crate::audio::{SharedNoiseGate, SharedPatch};
 use crate::connection::Connection;
 use crate::patch_panel::PatchPanel;
 use crate::patches::PatchLibrary;
@@ -19,7 +19,7 @@ use crate::{ports_panel, settings};
 use synthbass_engine::Patch;
 
 pub struct SynthbassApp {
-    sound: SoundParams,
+    shared_patch: SharedPatch,
     readouts: Consumer<Readout>,
     readout: Readout,
     connection: Connection,
@@ -34,7 +34,7 @@ pub struct SynthbassApp {
 
 impl SynthbassApp {
     pub fn new(
-        sound: SoundParams,
+        shared_patch: SharedPatch,
         readouts: Consumer<Readout>,
         connection: Connection,
         noise_gate: SharedNoiseGate,
@@ -43,7 +43,7 @@ impl SynthbassApp {
     ) -> Self {
         let (patches, patch) = PatchPanel::new(library, settings.clone());
         let mut app = SynthbassApp {
-            sound,
+            shared_patch,
             readouts,
             readout: Readout::default(),
             connection,
@@ -57,9 +57,9 @@ impl SynthbassApp {
         app
     }
 
-    /// Makes `patch` the current sound and sends all of it to the engine.
+    /// Makes `patch` the current patch and sends all of it to the engine.
     fn play(&mut self, patch: Patch) {
-        self.sound.set_patch(&patch);
+        self.shared_patch.set_all(&patch);
         self.current = patch;
     }
 
@@ -164,7 +164,7 @@ impl SynthbassApp {
 
     fn change(&mut self, param: Param, value: f32) {
         self.current.set(param, value);
-        self.sound.set(param, self.current.get(param));
+        self.shared_patch.set(param, self.current.get(param));
     }
 
     /// One slot per voice: its note and how loud it is, dimmed when idle.
@@ -210,8 +210,8 @@ impl eframe::App for SynthbassApp {
                 self.tuner(ui);
                 ui.add_space(8.0);
 
-                ui.label("Input");
-                let level = self.readout.input_level;
+                ui.label("Dry signal");
+                let level = self.readout.dry_signal_peak;
                 ui.add(egui::ProgressBar::new(meter_fill(level)).text(Format::Level.text(level)));
                 self.noise_gate_knob(ui);
                 ui.add_space(8.0);

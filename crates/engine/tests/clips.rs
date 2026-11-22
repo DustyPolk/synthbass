@@ -149,7 +149,7 @@ fn clip_loads_with_its_description_and_runs_through_the_engine_in_chunks() {
     assert_eq!(run.readouts.first().unwrap().0, 100.0 / 44_100.0);
     let (end, last) = run.readouts.last().unwrap();
     assert!((end - dry.len() as f32 / 44_100.0).abs() < 1e-6);
-    assert!(last.input_level > 0.0);
+    assert!(last.dry_signal_peak > 0.0);
     assert!(peak(&run.output.right) > 0.29);
 }
 

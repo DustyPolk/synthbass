@@ -28,13 +28,13 @@ fn main() -> eframe::Result {
 
     let (settings, settings_warning) = settings::Store::open(settings::default_path());
     let noise_gate = audio::SharedNoiseGate::new(settings.get().noise_gate);
-    let sound = audio::SoundParams::new();
+    let shared_patch = audio::SharedPatch::new();
     let library = patches::PatchLibrary::open(patches::default_dir());
 
     // Held for the life of the window; dropping it stops audio.
     let connection = connection::Connection::start(
         audio::AudioParts {
-            sound: sound.clone(),
+            shared_patch: shared_patch.clone(),
             readouts: readout_tx,
             noise_gate: noise_gate.clone(),
         },
@@ -52,7 +52,12 @@ fn main() -> eframe::Result {
         Box::new(|cc| {
             cc.egui_ctx.set_theme(egui::Theme::Dark);
             Ok(Box::new(ui::SynthbassApp::new(
-                sound, readout_rx, connection, noise_gate, settings, library,
+                shared_patch,
+                readout_rx,
+                connection,
+                noise_gate,
+                settings,
+                library,
             )))
         }),
     )

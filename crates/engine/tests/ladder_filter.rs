@@ -50,7 +50,7 @@ fn resonance_emphasises_the_cutoff_frequency() {
 }
 
 #[test]
-fn stays_stable_at_maximum_resonance_under_a_hot_swept_input() {
+fn stays_stable_at_maximum_resonance_under_a_hot_dry_signal_and_a_swept_cutoff() {
     // Full drive into maximum resonance: a ±0.5 square at 41 Hz while the
     // cutoff sweeps its full range every second, then silence. The output
     // level is low enough that the limiter never touches a stable filter.

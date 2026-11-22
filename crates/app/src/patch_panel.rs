@@ -183,7 +183,7 @@ impl PatchPanel {
     fn delete(&mut self, name: String) {
         self.confirm_delete = false;
         match self.library.delete(&name) {
-            // The sound keeps playing; it is now unsaved until saved again.
+            // The patch keeps playing; it is now unsaved until saved again.
             Ok(()) => {
                 self.loaded = None;
                 self.message = Some(format!("Deleted \"{name}\"."));

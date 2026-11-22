@@ -8,8 +8,8 @@
 
 **Context budget:** finish within one fresh context, well under 150K tokens. Read `GLOSSARY.md`, `.scratch/synthbass-review-followups/spec.md` and the relevant ADRs; skip anything unrelated. Keep test and build output terse (filter to failures).
 
-- [ ] No identifier or window label uses "input" for the dry signal (JACK port names excepted) or "sound" for a patch
-- [ ] `GLOSSARY.md` has the port note
-- [ ] The tracker's bookkeeping type, the sieve constants and oscillator 1's fields are renamed; no nested engine-in-engine access remains
-- [ ] Pure renames: no behaviour change
-- [ ] All existing tests pass, including the recorded-clip suites, with no new exemptions
+- [x] No identifier or window label uses "input" for the dry signal (JACK port names excepted) or "sound" for a patch
+- [x] `GLOSSARY.md` has the port note
+- [x] The tracker's bookkeeping type, the sieve constants and oscillator 1's fields are renamed; no nested engine-in-engine access remains
+- [x] Pure renames: no behaviour change
+- [x] All existing tests pass, including the recorded-clip suites, with no new exemptions

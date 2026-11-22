@@ -103,8 +103,10 @@ const REPICK_JUMP: f32 = 0.5;
 /// repick is looked for until this long after it.
 const REPICK_HOLDOFF_SECONDS: f32 = 0.08;
 
+/// A note followed from hop to hop, pending until it is reported, with the
+/// tracker's bookkeeping on it.
 #[derive(Clone, Copy, Default)]
-struct Tracked {
+struct NoteTrack {
     note: DetectedNote,
     hops_alive: u32,
     hops_missed: u32,
@@ -126,7 +128,7 @@ pub struct Tracker {
     gate: f32,
     analysis_phase: usize,
     pick_meter: PeakMeter,
-    tracked: [Option<Tracked>; MAX_DETECTED_NOTES],
+    tracks: [Option<NoteTrack>; MAX_DETECTED_NOTES],
     next_id: u32,
     birth_hops: u32,
     unclear_birth_hops: u32,
@@ -153,7 +155,7 @@ impl Tracker {
             gate: crate::NoiseGate::default().threshold(),
             analysis_phase: 0,
             pick_meter: PeakMeter::new(sample_rate),
-            tracked: [None; MAX_DETECTED_NOTES],
+            tracks: [None; MAX_DETECTED_NOTES],
             next_id: 0,
             birth_hops: hops(BIRTH_SECONDS),
             unclear_birth_hops: hops(UNCLEAR_BIRTH_SECONDS),
@@ -192,7 +194,7 @@ impl Tracker {
         let mut heard = [RawNote::default(); MAX_DETECTED_NOTES];
         let mut sounding = [0.0; MAX_DETECTED_NOTES];
         let mut sounding_count = 0;
-        for t in self.tracked.iter().flatten().filter(|t| t.reported) {
+        for t in self.tracks.iter().flatten().filter(|t| t.reported) {
             sounding[sounding_count] = t.note.pitch;
             sounding_count += 1;
         }
@@ -200,7 +202,7 @@ impl Tracker {
         // note (that note's attack settling): a lone note's periodicity
         // estimate would follow it to a pitch between the two.
         let pending_apart = self
-            .tracked
+            .tracks
             .iter()
             .flatten()
             .filter(|t| {
@@ -221,7 +223,7 @@ impl Tracker {
             },
             &mut heard,
         );
-        let found = continuations(&self.tracked, &heard[..count]);
+        let found = continuations(&self.tracks, &heard[..count]);
 
         let pick_level = self.pick_meter.level();
         // The ring runs oldest first from `pick_history_index`; the levels at
@@ -244,7 +246,7 @@ impl Tracker {
         };
 
         let mut matched = [false; MAX_DETECTED_NOTES];
-        for (slot, found) in self.tracked.iter_mut().zip(found) {
+        for (slot, found) in self.tracks.iter_mut().zip(found) {
             let Some(slot) = slot else { continue };
             match found {
                 Some((i, distance)) => {
@@ -279,7 +281,7 @@ impl Tracker {
             }
         }
 
-        for slot in &mut self.tracked {
+        for slot in &mut self.tracks {
             if let Some(t) = slot {
                 let expired = if t.reported {
                     t.hops_missed > self.release_hops
@@ -302,11 +304,11 @@ impl Tracker {
         }
 
         for i in (0..count).filter(|&i| !matched[i]) {
-            let Some(free) = self.tracked.iter_mut().find(|s| s.is_none()) else {
+            let Some(free) = self.tracks.iter_mut().find(|s| s.is_none()) else {
                 break;
             };
             self.next_id = self.next_id.wrapping_add(1);
-            *free = Some(Tracked {
+            *free = Some(NoteTrack {
                 note: DetectedNote {
                     id: self.next_id,
                     pitch: heard[i].pitch,
@@ -328,7 +330,7 @@ impl Tracker {
     /// The reported notes, loudest first.
     pub fn notes(&self) -> DetectedNotes {
         let mut notes = DetectedNotes::default();
-        for t in self.tracked.iter().flatten().filter(|t| t.reported) {
+        for t in self.tracks.iter().flatten().filter(|t| t.reported) {
             notes.notes[notes.len] = t.note;
             notes.len += 1;
         }
@@ -338,7 +340,7 @@ impl Tracker {
 
     /// A reading only when exactly one note is sounding and has settled.
     pub fn tuner(&self) -> Option<TunerReading> {
-        let mut reported = self.tracked.iter().flatten().filter(|t| t.reported);
+        let mut reported = self.tracks.iter().flatten().filter(|t| t.reported);
         let only = reported.next()?;
         if reported.next().is_some() || only.hops_alive < self.birth_hops + self.tuner_settle_hops {
             return None;
@@ -352,21 +354,21 @@ impl Tracker {
 }
 
 /// Which note heard this hop (index into `heard`, and how far it lies) each
-/// tracked note continues as: the nearest one within its match radius.
+/// track continues as: the nearest one within its match radius.
 /// Reported notes choose first: a pending note that took the one a reported
 /// note continues as would make it expire and return with a new id mid-note.
 fn continuations(
-    tracked: &[Option<Tracked>; MAX_DETECTED_NOTES],
+    tracks: &[Option<NoteTrack>; MAX_DETECTED_NOTES],
     heard: &[RawNote],
 ) -> [Option<(usize, f32)>; MAX_DETECTED_NOTES] {
     let mut taken = [false; MAX_DETECTED_NOTES];
     let mut found = [None; MAX_DETECTED_NOTES];
     let reported_first = [true, false].into_iter().flat_map(|reported| {
         (0..MAX_DETECTED_NOTES)
-            .filter(move |&slot| tracked[slot].is_some_and(|t| t.reported == reported))
+            .filter(move |&slot| tracks[slot].is_some_and(|t| t.reported == reported))
     });
     for slot in reported_first {
-        let Some(t) = tracked[slot] else { continue };
+        let Some(t) = tracks[slot] else { continue };
         let radius = if t.reported {
             MATCH_RADIUS
         } else {

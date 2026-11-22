@@ -8,6 +8,8 @@ A standalone instrument that turns a live bass guitar signal into analog-style s
 The clean, unprocessed bass guitar signal as it arrives from the audio interface.
 _Avoid_: Input, clean signal, DI
 
+JACK's input and output ports are audio routing, not the dry signal, so the port pickers keep "input port" and "output port". The dry signal arrives through the input port.
+
 **Direct layer**:
 Synth sound shaped straight from the dry signal itself, with no pitch detection and no added delay.
 _Avoid_: Instant layer, envelope synth, fuzz layer

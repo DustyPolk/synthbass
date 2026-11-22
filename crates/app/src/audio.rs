@@ -19,23 +19,23 @@ const MAX_BLOCK: usize = 1024;
 /// client, so the app can reconnect to a restarted server without touching
 /// the UI.
 pub struct AudioParts {
-    pub sound: SoundParams,
+    pub shared_patch: SharedPatch,
     pub readouts: Producer<Readout>,
     pub noise_gate: SharedNoiseGate,
 }
 
-/// Every sound param as the window last set it, shared with the audio
+/// The patch as the window last set it, param by param, shared with the audio
 /// thread. The window stores values rather than queueing changes, so
 /// whichever engine runs, including one built after a reconnect or a sample
-/// rate change, plays the current sound, and no number of changes made
+/// rate change, plays the current patch, and no number of changes made
 /// while no engine runs can overflow anything.
 #[derive(Clone)]
-pub struct SoundParams(Arc<[AtomicU32; Param::ALL.len()]>);
+pub struct SharedPatch(Arc<[AtomicU32; Param::ALL.len()]>);
 
-impl SoundParams {
+impl SharedPatch {
     /// Every param at its default.
     pub fn new() -> Self {
-        SoundParams(Arc::new(
+        SharedPatch(Arc::new(
             Param::ALL.map(|param| AtomicU32::new(param.default_value().to_bits())),
         ))
     }
@@ -45,7 +45,7 @@ impl SoundParams {
     }
 
     /// Every param of `patch`.
-    pub fn set_patch(&self, patch: &Patch) {
+    pub fn set_all(&self, patch: &Patch) {
         for param in Param::ALL {
             self.set(param, patch.get(param));
         }
@@ -83,8 +83,8 @@ impl SyncedEngine {
     }
 
     /// Brings the engine up to date with the window. Realtime-safe.
-    fn sync(&mut self, sound: &SoundParams, gate: &SharedNoiseGate) {
-        sound.load_into(&mut self.wanted);
+    fn sync(&mut self, shared_patch: &SharedPatch, gate: &SharedNoiseGate) {
+        shared_patch.load_into(&mut self.wanted);
         if self.fresh || self.wanted != self.applied {
             self.engine.apply_patch(&self.wanted);
             std::mem::swap(&mut self.wanted, &mut self.applied);
@@ -96,11 +96,19 @@ impl SyncedEngine {
             self.gate_applied = Some(bits);
         }
     }
+
+    fn process(&mut self, dry: &[f32], left: &mut [f32], right: &mut [f32]) {
+        self.engine.process(dry, left, right);
+    }
+
+    fn readout(&self) -> Readout {
+        self.engine.readout()
+    }
 }
 
 /// The global noise gate, shared with the audio thread as its threshold's
 /// bits. It is a setting of the room, not of a patch, so it travels apart
-/// from sound parameters.
+/// from the patch.
 #[derive(Clone)]
 pub struct SharedNoiseGate(Arc<AtomicU32>);
 
@@ -211,7 +219,8 @@ pub struct Processor {
 
 impl jack::ProcessHandler for Processor {
     fn process(&mut self, _: &Client, scope: &ProcessScope) -> Control {
-        self.engine.sync(&self.parts.sound, &self.parts.noise_gate);
+        self.engine
+            .sync(&self.parts.shared_patch, &self.parts.noise_gate);
 
         let dry = self.input.as_slice(scope);
         let out_1 = self.out_1.as_mut_slice(scope);
@@ -221,12 +230,12 @@ impl jack::ProcessHandler for Processor {
             .zip(out_1.chunks_mut(MAX_BLOCK))
             .zip(out_2.chunks_mut(MAX_BLOCK))
         {
-            self.engine.engine.process(dry, left, right);
+            self.engine.process(dry, left, right);
         }
 
         // If the UI has fallen behind, it misses this snapshot; the next one
         // supersedes it anyway.
-        let _ = self.parts.readouts.push(self.engine.engine.readout());
+        let _ = self.parts.readouts.push(self.engine.readout());
         Control::Continue
     }
 }
@@ -245,7 +254,11 @@ mod tests {
     }
 
     /// Peak output over the second half of a 0.4 s sine.
-    fn settled_peak(engine: &mut SyncedEngine, sound: &SoundParams, gate: &SharedNoiseGate) -> f32 {
+    fn settled_peak(
+        engine: &mut SyncedEngine,
+        shared_patch: &SharedPatch,
+        gate: &SharedNoiseGate,
+    ) -> f32 {
         let dry = sine(0.4);
         let (mut left, mut right) = (vec![0.0; dry.len()], vec![0.0; dry.len()]);
         for ((dry, left), right) in dry
@@ -253,8 +266,8 @@ mod tests {
             .zip(left.chunks_mut(128))
             .zip(right.chunks_mut(128))
         {
-            engine.sync(sound, gate);
-            engine.engine.process(dry, left, right);
+            engine.sync(shared_patch, gate);
+            engine.process(dry, left, right);
         }
         left[dry.len() / 2..]
             .iter()
@@ -262,52 +275,52 @@ mod tests {
     }
 
     #[test]
-    fn an_engine_built_after_the_sound_was_set_plays_that_sound() {
+    fn an_engine_built_after_the_patch_was_set_plays_that_patch() {
         // As after a server restart or a sample rate change: the window set
         // the patch long before this engine existed.
-        let sound = SoundParams::new();
+        let shared_patch = SharedPatch::new();
         let gate = SharedNoiseGate::new(NoiseGate::default());
-        sound.set(Param::DryLevel, 0.5);
+        shared_patch.set(Param::DryLevel, 0.5);
         let mut engine = SyncedEngine::new(RATE);
-        let peak = settled_peak(&mut engine, &sound, &gate);
+        let peak = settled_peak(&mut engine, &shared_patch, &gate);
         assert!((peak - 0.125).abs() < 0.005, "peak {peak}");
     }
 
     #[test]
     fn a_change_reaches_the_running_engine() {
-        let sound = SoundParams::new();
+        let shared_patch = SharedPatch::new();
         let gate = SharedNoiseGate::new(NoiseGate::default());
         let mut engine = SyncedEngine::new(RATE);
-        let before = settled_peak(&mut engine, &sound, &gate);
-        sound.set(Param::OutputLevel, 0.0);
-        let after = settled_peak(&mut engine, &sound, &gate);
+        let before = settled_peak(&mut engine, &shared_patch, &gate);
+        shared_patch.set(Param::OutputLevel, 0.0);
+        let after = settled_peak(&mut engine, &shared_patch, &gate);
         assert!(before > 0.2, "before {before}");
         assert!(after < 1e-6, "after {after}");
     }
 
     #[test]
     fn a_whole_patch_reaches_the_running_engine() {
-        let sound = SoundParams::new();
+        let shared_patch = SharedPatch::new();
         let gate = SharedNoiseGate::new(NoiseGate::default());
         let mut engine = SyncedEngine::new(RATE);
-        let before = settled_peak(&mut engine, &sound, &gate);
+        let before = settled_peak(&mut engine, &shared_patch, &gate);
         let mut patch = Patch::new("Half dry");
         patch.set(Param::DryLevel, 0.5);
-        sound.set_patch(&patch);
-        let after = settled_peak(&mut engine, &sound, &gate);
+        shared_patch.set_all(&patch);
+        let after = settled_peak(&mut engine, &shared_patch, &gate);
         assert!((before - 0.25).abs() < 0.005, "before {before}");
         assert!((after - 0.125).abs() < 0.005, "after {after}");
     }
 
     #[test]
     fn no_number_of_changes_without_an_engine_is_lost() {
-        let sound = SoundParams::new();
+        let shared_patch = SharedPatch::new();
         let gate = SharedNoiseGate::new(NoiseGate::default());
         for step in 0..=1000 {
-            sound.set(Param::DryLevel, 1.0 - step as f32 / 1000.0);
+            shared_patch.set(Param::DryLevel, 1.0 - step as f32 / 1000.0);
         }
         let mut engine = SyncedEngine::new(RATE);
-        let peak = settled_peak(&mut engine, &sound, &gate);
+        let peak = settled_peak(&mut engine, &shared_patch, &gate);
         assert!(peak < 1e-6, "peak {peak}");
     }
 }
