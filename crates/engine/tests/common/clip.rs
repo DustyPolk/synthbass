@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use synthbass_engine::{Engine, Readout};
+use synthbass_engine::{Engine, NOISE_GATE_DEFAULT, Readout};
 
 use super::Rendered;
 
@@ -222,7 +222,16 @@ pub struct VoiceScore {
     pub events: Vec<EventScore>,
     /// Seconds with a voice sounding while no note is expected.
     pub ghost_seconds: f32,
+    /// Where those voices were: (start, end) of each stretch, in seconds.
+    pub ghost_spans: Vec<(f32, f32)>,
+    /// Seconds with a voice sounding although the dry signal has stayed
+    /// below the default noise gate for the last `QUIET_SECONDS`.
+    pub lingering_seconds: f32,
 }
+
+/// How long the string must have been below the gate before a voice that
+/// still sounds counts as lingering.
+pub const QUIET_SECONDS: f32 = 0.05;
 
 /// One expected event, judged inside its window (onset and offset each
 /// pulled in by the timing tolerance).
@@ -258,7 +267,18 @@ impl std::fmt::Display for VoiceScore {
                 e.overhang
             )?;
         }
-        write!(f, "  ghost {:.2}s", self.ghost_seconds)
+        let spans: Vec<String> = self
+            .ghost_spans
+            .iter()
+            .map(|(a, b)| format!("{a:.2}-{b:.2}"))
+            .collect();
+        write!(
+            f,
+            "  ghost {:.2}s at {}; lingering {:.2}s",
+            self.ghost_seconds,
+            spans.join(" "),
+            self.lingering_seconds
+        )
     }
 }
 
@@ -348,15 +368,37 @@ pub fn score_voices(clip: &Clip, run: &ClipRun) -> VoiceScore {
             .iter()
             .any(|e| t >= e.onset - tol && t <= e.offset + tol)
     };
-    let ghost_seconds = (0..run.readouts.len())
+    let ghostly = |i: usize| {
+        let (t, readout) = &run.readouts[i];
+        !expected_at(*t) && !readout.voices.is_empty()
+    };
+    let ghost_seconds = (0..run.readouts.len()).filter(|&i| ghostly(i)).map(step).sum();
+    let mut ghost_spans: Vec<(f32, f32)> = Vec::new();
+    for i in (0..run.readouts.len()).filter(|&i| ghostly(i)) {
+        let t = run.readouts[i].0;
+        match ghost_spans.last_mut() {
+            Some((_, end)) if t - *end <= 2.0 * step(i) => *end = t,
+            _ => ghost_spans.push((t - step(i), t)),
+        }
+    }
+    let quiet = |t: f32| {
+        let end = ((t * clip.sample_rate) as usize).min(clip.dry.len());
+        let start = end.saturating_sub((QUIET_SECONDS * clip.sample_rate) as usize);
+        clip.dry[start..end]
+            .iter()
+            .all(|s| s.abs() < NOISE_GATE_DEFAULT)
+    };
+    let lingering_seconds = (0..run.readouts.len())
         .filter(|&i| {
             let (t, readout) = &run.readouts[i];
-            !expected_at(*t) && !readout.voices.is_empty()
+            !readout.voices.is_empty() && quiet(*t)
         })
         .map(step)
         .sum();
     VoiceScore {
         events,
         ghost_seconds,
+        ghost_spans,
+        lingering_seconds,
     }
 }

@@ -515,13 +515,96 @@ mod tests {
     const SAMPLE_RATE: f32 = 48_000.0;
 
     fn note(id: u32, pitch: f32) -> DetectedNote {
+        loud_note(id, pitch, 0.3)
+    }
+
+    fn loud_note(id: u32, pitch: f32, level: f32) -> DetectedNote {
         DetectedNote {
             id,
             pitch,
-            level: 0.3,
+            level,
             onset_strength: 0.5,
             repicks: 0,
         }
+    }
+
+    /// Hands `notes` (any order) to the layer the way the tracker does,
+    /// loudest first, and returns the sounding voices' pitches, low to high.
+    fn play(layer: &mut TrackedLayer, notes: &[DetectedNote]) -> Vec<f32> {
+        let mut notes = notes.to_vec();
+        notes.sort_by(|a, b| b.level.total_cmp(&a.level));
+        layer.update(&notes, &[0.5; 32]);
+        for _ in 0..32 {
+            layer.process();
+        }
+        // Rounded: a stolen voice glides to its new pitch.
+        let mut pitches: Vec<f32> = layer
+            .voices()
+            .iter()
+            .map(|v| (v.pitch * 100.0).round() / 100.0)
+            .collect();
+        pitches.sort_by(f32::total_cmp);
+        pitches
+    }
+
+    /// Plays `notes` for `seconds`, so voices that lost their note fade out.
+    fn hold(layer: &mut TrackedLayer, notes: &[DetectedNote], seconds: f32) -> Vec<f32> {
+        let mut pitches = Vec::new();
+        for _ in 0..(seconds * SAMPLE_RATE / 32.0) as usize {
+            pitches = play(layer, notes);
+        }
+        pitches
+    }
+
+    #[test]
+    fn five_notes_get_four_voices_and_the_quietest_has_none() {
+        let mut layer = TrackedLayer::new(SAMPLE_RATE);
+        let notes = [
+            loud_note(1, 40.0, 0.3),
+            loud_note(2, 44.0, 0.05),
+            loud_note(3, 47.0, 0.25),
+            loud_note(4, 52.0, 0.2),
+            loud_note(5, 55.0, 0.15),
+        ];
+        assert_eq!(hold(&mut layer, &notes, 0.05), [40.0, 47.0, 52.0, 55.0]);
+    }
+
+    #[test]
+    fn a_fifth_note_replaces_the_quietest_voice() {
+        let mut layer = TrackedLayer::new(SAMPLE_RATE);
+        let mut notes = vec![
+            loud_note(1, 40.0, 0.2),
+            loud_note(2, 44.0, 0.05),
+            loud_note(3, 47.0, 0.25),
+            loud_note(4, 52.0, 0.15),
+        ];
+        assert_eq!(hold(&mut layer, &notes, 0.05), [40.0, 44.0, 47.0, 52.0]);
+        notes.push(loud_note(5, 57.0, 0.3));
+        assert_eq!(hold(&mut layer, &notes, 0.05), [40.0, 47.0, 52.0, 57.0]);
+    }
+
+    #[test]
+    fn notes_of_about_equal_level_keep_their_voices() {
+        let mut layer = TrackedLayer::new(SAMPLE_RATE);
+        let four = [
+            loud_note(1, 40.0, 0.2),
+            loud_note(2, 44.0, 0.2),
+            loud_note(3, 47.0, 0.2),
+            loud_note(4, 52.0, 0.2),
+        ];
+        hold(&mut layer, &four, 0.05);
+        // A fifth note just louder than the rest doesn't steal.
+        let mut five = four.to_vec();
+        five.push(loud_note(5, 57.0, 0.22));
+        assert_eq!(hold(&mut layer, &five, 0.05), [40.0, 44.0, 47.0, 52.0]);
+    }
+
+    #[test]
+    fn a_new_note_takes_a_silent_voice_not_one_still_fading() {
+        let mut layer = TrackedLayer::new(SAMPLE_RATE);
+        play(&mut layer, &[note(1, 40.0)]);
+        // Note 1 ends; its voice starts fading as note 2 arrives.
+        assert_eq!(play(&mut layer, &[note(2, 45.0)]), [40.0, 45.0]);
     }
 
     fn plucky() -> Sound {

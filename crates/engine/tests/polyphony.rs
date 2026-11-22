@@ -39,26 +39,23 @@ fn a_tenth_plays_as_two_voices_at_their_pitches() {
     assert_pitches(&voice_pitches(&engine), &[28.0, 44.0]);
 }
 
+/// Five notes whose partials stay clear of each other's bands (E1 under a
+/// whole-tone cluster), the third quietest by far.
+const FIVE: [(f32, f32); 5] = [(28.0, 0.3), (61.0, 0.25), (63.0, 0.06), (65.0, 0.22), (67.0, 0.2)];
+
 #[test]
-#[ignore]
-fn explore_five() {
-    for set in [
-        [28.0, 61.0, 63.0, 65.0, 67.0],
-        [61.0, 28.0, 63.0, 65.0, 67.0],
-        [67.0, 63.0, 61.0, 28.0, 65.0],
-        [28.0, 44.0, 61.0, 63.0, 67.0],
-        [28.0, 44.0, 54.0, 61.0, 67.0],
-    ] {
-        let amps = [0.3, 0.27, 0.24, 0.21, 0.08];
-        let tones: Vec<Vec<f32>> = set
-            .iter()
-            .zip(amps)
-            .map(|(&n, a)| bass_tone(hz(n), a, 1.0, 0.6))
-            .collect();
-        let mut engine = engine();
-        render(&mut engine, &chord(&tones), &[128]);
-        let r = engine.readout();
-        let notes: Vec<(f32, f32)> = r.notes.iter().map(|n| (n.pitch, n.level)).collect();
-        println!("{set:?}: notes {notes:?} voices {:?}", voice_pitches(&engine));
+fn five_simultaneous_tones_give_four_voices_without_the_quietest() {
+    let mut engine = engine();
+    let tones: Vec<Vec<f32>> = FIVE
+        .iter()
+        .map(|&(note, amplitude)| bass_tone(hz(note), amplitude, 1.0, 0.6))
+        .collect();
+    let dry = chord(&tones);
+    let mut most = 0;
+    for block in dry.chunks(128) {
+        render(&mut engine, block, &[128]);
+        most = most.max(engine.readout().voices.len());
     }
+    assert!(most <= 4, "{most} voices at once");
+    assert_pitches(&voice_pitches(&engine), &[28.0, 61.0, 65.0, 67.0]);
 }
