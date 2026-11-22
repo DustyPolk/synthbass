@@ -13,10 +13,10 @@ use synthbass_engine::{
 
 use crate::audio::{NoiseGate, SoundParams};
 use crate::connection::Connection;
-use crate::patch::Patch;
 use crate::patch_panel::PatchPanel;
 use crate::patches::PatchLibrary;
 use crate::{ports_panel, settings};
+use synthbass_engine::Patch;
 
 pub struct SynthbassApp {
     sound: SoundParams,
@@ -59,10 +59,8 @@ impl SynthbassApp {
 
     /// Makes `patch` the current sound and sends all of it to the engine.
     fn play(&mut self, patch: Patch) {
+        self.sound.set_patch(&patch);
         self.current = patch;
-        for param in Param::ALL {
-            self.send(param);
-        }
     }
 
     /// Note name and cents, or a dash when there is no clear single note.
@@ -151,10 +149,6 @@ impl SynthbassApp {
 
     fn change(&mut self, param: Param, value: f32) {
         self.current.set(param, value);
-        self.send(param);
-    }
-
-    fn send(&mut self, param: Param) {
         self.sound.set(param, self.current.get(param));
     }
 
