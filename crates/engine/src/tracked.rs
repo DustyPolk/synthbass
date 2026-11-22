@@ -3,6 +3,7 @@
 
 use std::ops::Deref;
 
+use crate::ladder::LadderFilter;
 use crate::param::Param;
 use crate::smoothed::Smoothed;
 use crate::tracker::{DetectedNote, NOISE_GATE_DEFAULT};
@@ -40,7 +41,39 @@ pub struct TrackedLayer {
     string: StringLevel,
     gate: f32,
     waveshape: Smoothed,
+    osc2_waveshape: Smoothed,
+    /// Oscillator 2's octave plus detune, in octaves; set from both params.
+    osc2_octave: f32,
+    osc2_detune: f32,
+    osc2_log2_ratio: Smoothed,
+    osc_mix: Smoothed,
+    sub_level: Smoothed,
+    log2_cutoff: Smoothed,
+    resonance: Smoothed,
+    envelope_amount: Smoothed,
+    envelope_decay: Smoothed,
+    pick_sensitivity: Smoothed,
     level: Smoothed,
+    sample_rate: f32,
+}
+
+/// The tracked layer's sound settings for one sample, shared by every voice.
+struct Sound {
+    /// Oscillator 1 from saw (0) to square (1).
+    osc1_square: f32,
+    osc2_square: f32,
+    /// Oscillator 2's frequency as a multiple of oscillator 1's.
+    osc2_ratio: f32,
+    /// 0 is oscillator 1 alone, 1 is oscillator 2 alone.
+    osc_mix: f32,
+    sub_level: f32,
+    log2_cutoff: f32,
+    resonance: f32,
+    /// Octaves a full-strength filter envelope opens the filter.
+    envelope_octaves: f32,
+    /// Per-sample multiplier of the envelope's fall.
+    envelope_decay: f32,
+    pick_sensitivity: f32,
 }
 
 impl TrackedLayer {
@@ -50,7 +83,35 @@ impl TrackedLayer {
             string: StringLevel::new(sample_rate),
             gate: NOISE_GATE_DEFAULT,
             waveshape: Smoothed::new(Param::TrackedOsc1Waveshape.default_value(), sample_rate),
+            osc2_waveshape: Smoothed::new(Param::TrackedOsc2Waveshape.default_value(), sample_rate),
+            osc2_octave: Param::TrackedOsc2Octave.default_value(),
+            osc2_detune: Param::TrackedOsc2Detune.default_value(),
+            osc2_log2_ratio: Smoothed::new(
+                osc2_log2_ratio(
+                    Param::TrackedOsc2Octave.default_value(),
+                    Param::TrackedOsc2Detune.default_value(),
+                ),
+                sample_rate,
+            ),
+            osc_mix: Smoothed::new(Param::TrackedOscMix.default_value(), sample_rate),
+            sub_level: Smoothed::new(Param::TrackedSubLevel.default_value(), sample_rate),
+            // Smoothed in octaves so sweeps sound even across the range.
+            log2_cutoff: Smoothed::new(Param::TrackedCutoff.default_value().log2(), sample_rate),
+            resonance: Smoothed::new(Param::TrackedResonance.default_value(), sample_rate),
+            envelope_amount: Smoothed::new(
+                Param::TrackedFilterEnvelopeAmount.default_value(),
+                sample_rate,
+            ),
+            envelope_decay: Smoothed::new(
+                Param::TrackedFilterEnvelopeDecay.default_value(),
+                sample_rate,
+            ),
+            pick_sensitivity: Smoothed::new(
+                Param::TrackedPickSensitivity.default_value(),
+                sample_rate,
+            ),
             level: Smoothed::new(Param::TrackedLevel.default_value(), sample_rate),
+            sample_rate,
         }
     }
 
@@ -58,7 +119,24 @@ impl TrackedLayer {
     pub fn set_param(&mut self, param: Param, value: f32) {
         match param {
             Param::TrackedOsc1Waveshape => self.waveshape.set_target(value.round()),
+            Param::TrackedOsc2Waveshape => self.osc2_waveshape.set_target(value.round()),
+            Param::TrackedOsc2Octave | Param::TrackedOsc2Detune => {
+                if param == Param::TrackedOsc2Octave {
+                    self.osc2_octave = value.round();
+                } else {
+                    self.osc2_detune = value;
+                }
+                self.osc2_log2_ratio
+                    .set_target(osc2_log2_ratio(self.osc2_octave, self.osc2_detune));
+            }
+            Param::TrackedOscMix => self.osc_mix.set_target(value),
+            Param::TrackedSubLevel => self.sub_level.set_target(value),
             Param::TrackedLevel => self.level.set_target(value),
+            Param::TrackedCutoff => self.log2_cutoff.set_target(value.log2()),
+            Param::TrackedResonance => self.resonance.set_target(value),
+            Param::TrackedFilterEnvelopeAmount => self.envelope_amount.set_target(value),
+            Param::TrackedFilterEnvelopeDecay => self.envelope_decay.set_target(value),
+            Param::TrackedPickSensitivity => self.pick_sensitivity.set_target(value),
             _ => debug_assert!(false, "{param:?} is not a tracked layer param"),
         }
     }
@@ -78,8 +156,22 @@ impl TrackedLayer {
     }
 
     pub fn process(&mut self) -> f32 {
-        let square = self.waveshape.next();
-        self.voice.process(square) * self.level.next()
+        let sound = Sound {
+            osc1_square: self.waveshape.next(),
+            osc2_square: self.osc2_waveshape.next(),
+            osc2_ratio: self.osc2_log2_ratio.next().exp2(),
+            osc_mix: self.osc_mix.next(),
+            sub_level: self.sub_level.next(),
+            log2_cutoff: self.log2_cutoff.next(),
+            resonance: self.resonance.next(),
+            envelope_octaves: ENVELOPE_OCTAVES * self.envelope_amount.next(),
+            // Decay is the time the sweep takes to fall to a tenth.
+            envelope_decay: (-std::f32::consts::LN_10
+                / (self.envelope_decay.next() * self.sample_rate))
+                .exp(),
+            pick_sensitivity: self.pick_sensitivity.next(),
+        };
+        self.voice.process(&sound) * self.level.next()
     }
 
     pub fn voices(&self) -> Voices {
@@ -90,6 +182,26 @@ impl TrackedLayer {
         }
         voices
     }
+}
+
+/// Octaves the filter envelope opens the filter at full amount, on the
+/// hardest pick: from the 300 Hz default cutoff past the top of the range.
+const ENVELOPE_OCTAVES: f32 = 6.0;
+
+/// Pick strengths (dry signal peak, dBFS) that map to the softest and the
+/// hardest pick for pick sensitivity.
+const SOFTEST_PICK_DB: f32 = -36.0;
+const HARDEST_PICK_DB: f32 = -6.0;
+
+/// How hard a note was picked, 0 (softest) to 1 (hardest), from its onset
+/// strength. On a dB scale so soft and hard playing respond evenly.
+fn pick_velocity(onset_strength: f32) -> f32 {
+    let db = 20.0 * onset_strength.max(1e-9).log10();
+    ((db - SOFTEST_PICK_DB) / (HARDEST_PICK_DB - SOFTEST_PICK_DB)).clamp(0.0, 1.0)
+}
+
+fn osc2_log2_ratio(octave: f32, detune_cents: f32) -> f32 {
+    octave + detune_cents / 1200.0
 }
 
 /// Removes the hop-to-hop steps from continuous pitch updates and nothing
@@ -105,6 +217,8 @@ const SILENT: f32 = 1e-5;
 struct Voice {
     /// The detected note this voice plays, while it still sounds.
     note_id: Option<u32>,
+    /// The `repicks` count of the note when the filter envelope last fired.
+    repicks: u32,
     sounding: bool,
     pitch: f32,
     target_pitch: f32,
@@ -113,6 +227,12 @@ struct Voice {
     pitch_coefficient: f32,
     loudness_coefficient: f32,
     osc: Oscillator,
+    osc2: Oscillator,
+    sub: Oscillator,
+    filter: LadderFilter,
+    envelope: FilterEnvelope,
+    /// Picks oscillator 2's starting phase.
+    seed: u32,
     sample_rate: f32,
 }
 
@@ -121,6 +241,7 @@ impl Voice {
         let coefficient = |seconds: f32| (-1.0 / (seconds * sample_rate)).exp();
         Voice {
             note_id: None,
+            repicks: 0,
             sounding: false,
             pitch: 0.0,
             target_pitch: 0.0,
@@ -129,6 +250,11 @@ impl Voice {
             pitch_coefficient: coefficient(PITCH_SMOOTHING_SECONDS),
             loudness_coefficient: coefficient(LOUDNESS_SMOOTHING_SECONDS),
             osc: Oscillator::default(),
+            osc2: Oscillator::default(),
+            sub: Oscillator::default(),
+            filter: LadderFilter::new(sample_rate),
+            envelope: FilterEnvelope::new(sample_rate),
+            seed: 0x9e37_79b9,
             sample_rate,
         }
     }
@@ -146,10 +272,29 @@ impl Voice {
                 if !self.sounding {
                     // A voice starts at its note's pitch and from silence.
                     self.pitch = note.pitch;
+                    self.filter.reset();
+                    self.envelope = FilterEnvelope::new(self.sample_rate);
+                    // Starting the sub with oscillator 1 keeps it locked
+                    // an octave below.
                     self.osc = Oscillator::default();
+                    self.sub = Oscillator::default();
+                    // Oscillator 2 starts at a fresh phase each note, so a
+                    // detuned unison never starts out cancelling.
+                    self.seed = self
+                        .seed
+                        .wrapping_mul(1_664_525)
+                        .wrapping_add(1_013_904_223);
+                    self.osc2 = Oscillator {
+                        phase: (self.seed >> 8) as f32 / (1 << 24) as f32,
+                    };
                     self.sounding = true;
                 }
+                // Fires for a new note and for the same note picked again.
+                if self.note_id != Some(note.id) || self.repicks != note.repicks {
+                    self.envelope.trigger(pick_velocity(note.onset_strength));
+                }
                 self.note_id = Some(note.id);
+                self.repicks = note.repicks;
                 self.target_pitch = note.pitch;
                 self.target_loudness = note.level.min(string_level);
             }
@@ -160,8 +305,7 @@ impl Voice {
         }
     }
 
-    /// `square` crossfades the oscillator from saw (0) to square (1).
-    fn process(&mut self, square: f32) -> f32 {
+    fn process(&mut self, sound: &Sound) -> f32 {
         if !self.sounding {
             return 0.0;
         }
@@ -174,7 +318,18 @@ impl Voice {
             return 0.0;
         }
         let frequency = 440.0 * ((self.pitch - 69.0) / 12.0).exp2();
-        self.osc.process(frequency / self.sample_rate, square) * self.loudness
+        let dt = frequency / self.sample_rate;
+        let osc1 = self.osc.process(dt, sound.osc1_square);
+        let osc2 = self.osc2.process(dt * sound.osc2_ratio, sound.osc2_square);
+        let sub = self.sub.process(0.5 * dt, 1.0);
+        let oscillators = osc1 + (osc2 - osc1) * sound.osc_mix;
+        let mix = (oscillators + sound.sub_level * sub) / (1.0 + sound.sub_level);
+        let envelope = self.envelope.process(sound.envelope_decay);
+        let pick = 1.0 - sound.pick_sensitivity * (1.0 - self.envelope.velocity);
+        let octaves = sound.envelope_octaves * pick * envelope;
+        self.filter.set_cutoff((sound.log2_cutoff + octaves).exp2());
+        self.filter.set_resonance(sound.resonance);
+        self.filter.process(mix) * self.loudness
     }
 
     fn reading(&self) -> Option<VoiceReading> {
@@ -182,6 +337,51 @@ impl Voice {
             pitch: self.pitch,
             loudness: self.loudness,
         })
+    }
+}
+
+/// The Moog "bwow": jumps open when the voice's note is detected, then
+/// falls away exponentially.
+struct FilterEnvelope {
+    /// 0 (closed) to 1 (fully open).
+    value: f32,
+    rising: bool,
+    /// Rise per sample; the jump takes `ENVELOPE_ATTACK_SECONDS` so it never
+    /// clicks.
+    attack_step: f32,
+    /// How hard the note that fired it was picked, 0..=1.
+    velocity: f32,
+}
+
+const ENVELOPE_ATTACK_SECONDS: f32 = 0.001;
+
+impl FilterEnvelope {
+    fn new(sample_rate: f32) -> Self {
+        FilterEnvelope {
+            value: 0.0,
+            rising: false,
+            attack_step: 1.0 / (ENVELOPE_ATTACK_SECONDS * sample_rate),
+            velocity: 0.0,
+        }
+    }
+
+    fn trigger(&mut self, velocity: f32) {
+        self.rising = true;
+        self.velocity = velocity;
+    }
+
+    /// `decay` multiplies the value each sample once it has peaked.
+    fn process(&mut self, decay: f32) -> f32 {
+        if self.rising {
+            self.value += self.attack_step;
+            if self.value >= 1.0 {
+                self.value = 1.0;
+                self.rising = false;
+            }
+        } else {
+            self.value *= decay;
+        }
+        self.value
     }
 }
 
@@ -258,5 +458,73 @@ fn poly_blep(t: f32, dt: f32) -> f32 {
         x * x + 2.0 * x + 1.0
     } else {
         0.0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SAMPLE_RATE: f32 = 48_000.0;
+
+    fn note(id: u32, pitch: f32) -> DetectedNote {
+        DetectedNote {
+            id,
+            pitch,
+            level: 0.3,
+            onset_strength: 0.5,
+            repicks: 0,
+        }
+    }
+
+    fn plucky() -> Sound {
+        Sound {
+            osc1_square: 0.0,
+            osc2_square: 0.0,
+            osc2_ratio: 1.0,
+            osc_mix: 0.0,
+            sub_level: 0.0,
+            log2_cutoff: 150f32.log2(),
+            resonance: 0.0,
+            envelope_octaves: ENVELOPE_OCTAVES,
+            envelope_decay: (-std::f32::consts::LN_10 / (0.1 * SAMPLE_RATE)).exp(),
+            pick_sensitivity: 0.0,
+        }
+    }
+
+    fn brightness(signal: &[f32]) -> f32 {
+        let energy: f32 = signal.iter().map(|s| s * s).sum();
+        let difference: f32 = signal.windows(2).map(|w| (w[1] - w[0]).powi(2)).sum();
+        difference / energy
+    }
+
+    /// Two voices whose notes start 0.2 s apart each get their own sweep:
+    /// when the second starts, it is bright while the first has closed.
+    #[test]
+    fn voices_starting_at_different_times_sweep_independently() {
+        let sound = plucky();
+        let (mut first, mut second) = (Voice::new(SAMPLE_RATE), Voice::new(SAMPLE_RATE));
+        let late = (0.2 * SAMPLE_RATE) as usize;
+        let window = (0.04 * SAMPLE_RATE) as usize;
+        let mut outputs = (Vec::new(), Vec::new());
+        first.update(&[note(1, 33.0)], 1.0);
+        for n in 0..late + window {
+            if n == late {
+                second.update(&[note(2, 33.0)], 1.0);
+            }
+            outputs.0.push(first.process(&sound));
+            outputs.1.push(second.process(&sound));
+        }
+        let first_start = brightness(&outputs.0[100..window]);
+        let first_late = brightness(&outputs.0[late..]);
+        let second_start = brightness(&outputs.1[late + 100..]);
+        assert!(
+            first_start > 3.0 * first_late,
+            "{first_start} vs {first_late}"
+        );
+        assert!(
+            second_start > 3.0 * first_late,
+            "{second_start} vs {first_late}"
+        );
     }
 }

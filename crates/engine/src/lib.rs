@@ -71,9 +71,18 @@ impl Engine {
             | Param::DirectResonance
             | Param::DirectEnvelopeSensitivity
             | Param::DirectLevel => self.direct.set_param(param, value),
-            Param::TrackedOsc1Waveshape | Param::TrackedLevel => {
-                self.tracked.set_param(param, value)
-            }
+            Param::TrackedOsc1Waveshape
+            | Param::TrackedOsc2Waveshape
+            | Param::TrackedOsc2Octave
+            | Param::TrackedOsc2Detune
+            | Param::TrackedOscMix
+            | Param::TrackedSubLevel
+            | Param::TrackedCutoff
+            | Param::TrackedResonance
+            | Param::TrackedFilterEnvelopeAmount
+            | Param::TrackedFilterEnvelopeDecay
+            | Param::TrackedPickSensitivity
+            | Param::TrackedLevel => self.tracked.set_param(param, value),
         }
     }
 

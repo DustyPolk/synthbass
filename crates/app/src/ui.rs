@@ -95,15 +95,31 @@ impl SynthbassApp {
             Param::DryLevel | Param::OutputLevel | Param::DirectLevel | Param::TrackedLevel => {
                 slider.custom_formatter(|gain, _| format_db(gain as f32))
             }
-            Param::DirectCutoff => slider
+            Param::DirectCutoff | Param::TrackedCutoff => slider
                 .logarithmic(true)
                 .custom_formatter(|hz, _| format!("{hz:.0} Hz")),
-            Param::DirectDrive | Param::DirectResonance | Param::DirectEnvelopeSensitivity => {
+            Param::DirectDrive
+            | Param::DirectResonance
+            | Param::DirectEnvelopeSensitivity
+            | Param::TrackedOscMix
+            | Param::TrackedSubLevel
+            | Param::TrackedResonance
+            | Param::TrackedFilterEnvelopeAmount
+            | Param::TrackedPickSensitivity => {
                 slider.custom_formatter(|amount, _| format!("{:.0} %", amount * 100.0))
             }
-            Param::TrackedOsc1Waveshape => slider
+            Param::TrackedOsc1Waveshape | Param::TrackedOsc2Waveshape => slider
                 .step_by(1.0)
                 .custom_formatter(|shape, _| waveshape_name(shape as f32).into()),
+            Param::TrackedOsc2Octave => slider
+                .step_by(1.0)
+                .custom_formatter(|octave, _| format!("{octave:+.0}")),
+            Param::TrackedOsc2Detune => {
+                slider.custom_formatter(|cents, _| format!("{cents:+.0} ¢"))
+            }
+            Param::TrackedFilterEnvelopeDecay => slider
+                .logarithmic(true)
+                .custom_formatter(|seconds, _| format!("{:.0} ms", seconds * 1000.0)),
         };
         if ui.add(slider).changed() {
             self.send(param);
@@ -126,6 +142,24 @@ impl SynthbassApp {
         ui.horizontal(|ui| {
             for shape in [0.0, 1.0] {
                 ui.selectable_value(value, shape, waveshape_name(shape));
+            }
+            ui.label(label);
+        });
+        if *value != before {
+            self.send(param);
+        }
+    }
+
+    /// −1 / 0 / +1 octave switch.
+    fn octave(&mut self, ui: &mut egui::Ui, param: Param, label: &str) {
+        let value = self
+            .values
+            .get_mut(&param)
+            .expect("every param has a value");
+        let before = *value;
+        ui.horizontal(|ui| {
+            for (octave, name) in [(-1.0, "−1"), (0.0, "0"), (1.0, "+1")] {
+                ui.selectable_value(value, octave, name);
             }
             ui.label(label);
         });
@@ -186,6 +220,24 @@ impl eframe::App for SynthbassApp {
 
             ui.label("Tracked");
             self.waveshape(ui, Param::TrackedOsc1Waveshape, "Oscillator 1");
+            self.waveshape(ui, Param::TrackedOsc2Waveshape, "Oscillator 2");
+            self.octave(ui, Param::TrackedOsc2Octave, "Oscillator 2 octave");
+            self.knob(ui, Param::TrackedOsc2Detune, "Oscillator 2 detune");
+            self.knob(ui, Param::TrackedOscMix, "Oscillator mix (1 → 2)");
+            self.knob(ui, Param::TrackedSubLevel, "Sub-oscillator level");
+            self.knob(ui, Param::TrackedCutoff, "Cutoff");
+            self.knob(ui, Param::TrackedResonance, "Resonance");
+            self.knob(
+                ui,
+                Param::TrackedFilterEnvelopeAmount,
+                "Filter envelope amount",
+            );
+            self.knob(
+                ui,
+                Param::TrackedFilterEnvelopeDecay,
+                "Filter envelope decay",
+            );
+            self.knob(ui, Param::TrackedPickSensitivity, "Pick sensitivity");
             self.knob(ui, Param::TrackedLevel, "Tracked layer level");
             self.voices(ui);
             ui.add_space(8.0);

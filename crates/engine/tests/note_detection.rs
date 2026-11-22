@@ -211,3 +211,91 @@ fn a_double_stop_gives_two_notes_and_no_tuner_reading() {
     );
     assert_eq!(readout.tuner, None);
 }
+
+/// The loudest note's (id, repicks) after each block of `dry`.
+fn onsets(dry: &[f32]) -> Vec<Option<(u32, u32)>> {
+    let mut engine = engine();
+    dry.chunks(64)
+        .map(|block| {
+            render(&mut engine, block, &[64]);
+            engine.readout().notes.first().map(|n| (n.id, n.repicks))
+        })
+        .collect()
+}
+
+fn repick_counts(dry: &[f32]) -> Vec<u32> {
+    onsets(dry)
+        .iter()
+        .map(|o| o.map_or(0, |(_, r)| r))
+        .collect()
+}
+
+/// Picking a sounding note again shows as a new onset: the note counts a
+/// repick, or (when the pick disturbs the analysis enough) it is heard as a
+/// new note.
+#[test]
+fn picking_a_sounding_note_again_is_a_new_onset() {
+    for note in [28.0, 45.0, 60.0] {
+        let mut dry = bass_tone(hz(note), 0.4, 1.0, 0.6);
+        dry.extend(bass_tone(hz(note), 0.4, 1.0, 0.4));
+        let onsets = onsets(&dry);
+        let repick_block = (0.6 * SAMPLE_RATE) as usize / 64;
+        let before = onsets[repick_block - 1].expect("the note sounds");
+        assert_eq!(before.1, 0, "note {note}");
+        let detected = onsets[repick_block..]
+            .iter()
+            .position(|o| o.is_some_and(|(id, repicks)| id != before.0 || repicks > 0));
+        let latency_ms = detected.map(|blocks| blocks as f32 * 64.0 / SAMPLE_RATE * 1000.0);
+        assert!(
+            latency_ms.is_some_and(|ms| ms < 40.0),
+            "note {note}: {latency_ms:?}"
+        );
+        let last = onsets.last().unwrap().expect("the note sounds");
+        assert!(last.1 <= 1, "note {note}: one onset only, {last:?}");
+    }
+}
+
+/// A plucked tone whose pitch swings ±`depth` semitones at `rate` Hz.
+fn vibrato_tone(note: f32, depth: f32, rate: f32, seconds: f32) -> Vec<f32> {
+    let len = (seconds * SAMPLE_RATE) as usize;
+    let mut phase = 0.0f32;
+    (0..len)
+        .map(|n| {
+            let t = n as f32 / SAMPLE_RATE;
+            let pitch = note + depth * (std::f32::consts::TAU * rate * t).sin();
+            phase = (phase + hz(pitch) / SAMPLE_RATE).fract();
+            let tone: f32 = (1..=8)
+                .map(|h| (std::f32::consts::TAU * phase * h as f32).sin() / h as f32)
+                .sum();
+            0.25 * tone * (-t / 1.5).exp()
+        })
+        .collect()
+}
+
+#[test]
+fn decay_vibrato_and_slides_are_not_repicks() {
+    let held = bass_tone(hz(33.0), 0.4, 1.0, 2.0);
+    let vibrato = vibrato_tone(40.0, 0.3, 5.5, 2.0);
+    let slide = {
+        let len = 2.0 * SAMPLE_RATE;
+        let mut phase = 0.0f32;
+        (0..len as usize)
+            .map(|n| {
+                let pitch = 40.0 + 5.0 * n as f32 / len;
+                phase = (phase + hz(pitch) / SAMPLE_RATE).fract();
+                let tone: f32 = (1..=8)
+                    .map(|h| (std::f32::consts::TAU * phase * h as f32).sin() / h as f32)
+                    .sum();
+                0.25 * tone * (-(n as f32) / SAMPLE_RATE / 1.5).exp()
+            })
+            .collect::<Vec<f32>>()
+    };
+    for (name, dry) in [("held", held), ("vibrato", vibrato), ("slide", slide)] {
+        let counts = repick_counts(&dry);
+        assert!(
+            counts.iter().all(|&c| c == 0),
+            "{name}: {:?}",
+            counts.iter().max()
+        );
+    }
+}

@@ -16,9 +16,12 @@ pub struct DetectedNote {
     pub pitch: f32,
     /// Current loudness of the note's partials (linear, ≈ peak amplitude).
     pub level: f32,
-    /// Peak dry signal level around the note's onset (linear): how hard it
-    /// was picked.
+    /// Peak dry signal level around the note's latest onset (linear): how
+    /// hard it was picked.
     pub onset_strength: f32,
+    /// How many times the note was picked again while it still sounded
+    /// (0 when it appears). Each repick also updates `onset_strength`.
+    pub repicks: u32,
 }
 
 impl DetectedNote {
@@ -80,6 +83,21 @@ const PENDING_MATCH_RADIUS: f32 = 0.5;
 /// The tuner waits this long after a note appears so it reads a settled
 /// pitch rather than flickering through the attack.
 const TUNER_SETTLE_SECONDS: f32 = 0.06;
+/// A sounding note whose level rises this far above its lowest level since
+/// its last onset was picked again. Decay only falls, and vibrato or a slide
+/// moves the level by much less.
+const REPICK_RISE: f32 = 1.3;
+/// Right after the dry signal's peak jumps (a pick somewhere), a smaller
+/// rise is enough, which finds the repick sooner.
+const REPICK_RISE_AFTER_PICK: f32 = 1.1;
+/// The dry signal's peak jumping by this factor within `PICK_HOPS` hops is a
+/// pick; a picked note's level counts as rising for `PICK_WINDOW_SECONDS`.
+const PICK_JUMP: f32 = 1.2;
+const PICK_HOPS: usize = 8;
+const PICK_WINDOW_SECONDS: f32 = 0.04;
+/// After an onset the level is still rising toward the pick's peak; no
+/// repick is looked for until this long after it.
+const REPICK_HOLDOFF_SECONDS: f32 = 0.08;
 
 #[derive(Clone, Copy, Default)]
 struct Tracked {
@@ -87,6 +105,9 @@ struct Tracked {
     hops_alive: u32,
     hops_missed: u32,
     reported: bool,
+    /// Lowest level since the hold-off after the latest onset ended.
+    valley: f32,
+    hops_since_onset: u32,
 }
 
 pub struct Tracker {
@@ -102,6 +123,12 @@ pub struct Tracker {
     birth_hops: u32,
     release_hops: u32,
     tuner_settle_hops: u32,
+    repick_holdoff_hops: u32,
+    /// The pick meter's level at each of the last `PICK_HOPS` hops.
+    pick_history: [f32; PICK_HOPS],
+    pick_history_index: usize,
+    hops_since_pick: u32,
+    pick_window_hops: u32,
 }
 
 impl Tracker {
@@ -122,6 +149,11 @@ impl Tracker {
             birth_hops: hops(BIRTH_SECONDS),
             release_hops: hops(RELEASE_SECONDS),
             tuner_settle_hops: hops(TUNER_SETTLE_SECONDS),
+            repick_holdoff_hops: hops(REPICK_HOLDOFF_SECONDS),
+            pick_history: [0.0; PICK_HOPS],
+            pick_history_index: 0,
+            hops_since_pick: u32::MAX,
+            pick_window_hops: hops(PICK_WINDOW_SECONDS),
         }
     }
 
@@ -152,6 +184,21 @@ impl Tracker {
             .analyse(&self.bank, &self.history, self.gate, &mut heard);
         let mut matched = [false; MAX_DETECTED_NOTES];
 
+        let pick_level = self.pick_meter.level();
+        let oldest = &mut self.pick_history[self.pick_history_index];
+        self.hops_since_pick = if pick_level > PICK_JUMP * *oldest && pick_level >= self.gate {
+            0
+        } else {
+            self.hops_since_pick.saturating_add(1)
+        };
+        *oldest = pick_level;
+        self.pick_history_index = (self.pick_history_index + 1) % PICK_HOPS;
+        let repick_rise = if self.hops_since_pick <= self.pick_window_hops {
+            REPICK_RISE_AFTER_PICK
+        } else {
+            REPICK_RISE
+        };
+
         // Each sounding note takes the nearest note heard this hop.
         for slot in self.tracked.iter_mut().flatten() {
             let radius = if slot.reported {
@@ -171,6 +218,19 @@ impl Tracker {
                     slot.note.level = heard[i].level;
                     slot.hops_alive += 1;
                     slot.hops_missed = 0;
+                    if slot.reported {
+                        slot.hops_since_onset += 1;
+                        if slot.hops_since_onset <= self.repick_holdoff_hops {
+                            slot.valley = slot.note.level;
+                        } else if slot.note.level > repick_rise * slot.valley {
+                            slot.note.repicks += 1;
+                            slot.note.onset_strength = self.pick_meter.level();
+                            slot.hops_since_onset = 0;
+                            slot.valley = slot.note.level;
+                        } else {
+                            slot.valley = slot.valley.min(slot.note.level);
+                        }
+                    }
                 }
                 None => slot.hops_missed += 1,
             }
@@ -206,10 +266,13 @@ impl Tracker {
                     pitch: heard[i].pitch,
                     level: heard[i].level,
                     onset_strength: 0.0,
+                    repicks: 0,
                 },
                 hops_alive: 1,
                 hops_missed: 0,
                 reported: false,
+                valley: 0.0,
+                hops_since_onset: 0,
             });
         }
     }
