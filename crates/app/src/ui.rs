@@ -1,5 +1,7 @@
-//! The window: level knobs, input meter, and connection status.
+//! The window: input meter, direct layer and mix knobs, and connection
+//! status.
 
+use std::collections::HashMap;
 use std::time::Duration;
 
 use eframe::egui;
@@ -16,8 +18,8 @@ pub struct SynthbassApp {
     readouts: Consumer<Readout>,
     readout: Readout,
     status: ConnectionStatus,
-    dry_level: f32,
-    output_level: f32,
+    /// The window's copy of every param, as last sent to the engine.
+    values: HashMap<Param, f32>,
 }
 
 impl SynthbassApp {
@@ -31,19 +33,30 @@ impl SynthbassApp {
             readouts,
             readout: Readout::default(),
             status,
-            dry_level: Param::DryLevel.default_value(),
-            output_level: Param::OutputLevel.default_value(),
+            values: Param::ALL
+                .iter()
+                .map(|&param| (param, param.default_value()))
+                .collect(),
         }
     }
 
-    fn level_knob(&mut self, ui: &mut egui::Ui, param: Param, label: &str) {
-        let value = match param {
-            Param::DryLevel => &mut self.dry_level,
-            Param::OutputLevel => &mut self.output_level,
+    fn knob(&mut self, ui: &mut egui::Ui, param: Param, label: &str) {
+        let value = self
+            .values
+            .get_mut(&param)
+            .expect("every param has a value");
+        let slider = egui::Slider::new(value, param.range()).text(label);
+        let slider = match param {
+            Param::DryLevel | Param::OutputLevel | Param::DirectLevel => {
+                slider.custom_formatter(|gain, _| format_db(gain as f32))
+            }
+            Param::DirectCutoff => slider
+                .logarithmic(true)
+                .custom_formatter(|hz, _| format!("{hz:.0} Hz")),
+            Param::DirectDrive | Param::DirectResonance | Param::DirectEnvelopeSensitivity => {
+                slider.custom_formatter(|amount, _| format!("{:.0} %", amount * 100.0))
+            }
         };
-        let slider = egui::Slider::new(value, param.range())
-            .text(label)
-            .custom_formatter(|gain, _| format_db(gain as f32));
         if ui.add(slider).changed() {
             // The audio thread drains this every period, so the ring only
             // fills if audio has stopped; then there is nobody to tell.
@@ -68,9 +81,17 @@ impl eframe::App for SynthbassApp {
             ui.add(egui::ProgressBar::new(fill).text(format_db(self.readout.input_level)));
             ui.add_space(8.0);
 
+            ui.label("Direct");
+            self.knob(ui, Param::DirectDrive, "Drive");
+            self.knob(ui, Param::DirectCutoff, "Cutoff");
+            self.knob(ui, Param::DirectResonance, "Resonance");
+            self.knob(ui, Param::DirectEnvelopeSensitivity, "Envelope sensitivity");
+            self.knob(ui, Param::DirectLevel, "Direct layer level");
+            ui.add_space(8.0);
+
             ui.label("Mix");
-            self.level_knob(ui, Param::DryLevel, "Dry signal level");
-            self.level_knob(ui, Param::OutputLevel, "Output level");
+            self.knob(ui, Param::DryLevel, "Dry signal level");
+            self.knob(ui, Param::OutputLevel, "Output level");
             ui.add_space(8.0);
 
             let color = if self.status.ok {
