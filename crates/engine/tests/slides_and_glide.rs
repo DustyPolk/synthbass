@@ -70,6 +70,39 @@ fn a_slide_across_several_semitones_keeps_one_voice() {
     }
 }
 
+/// Worst distance (cents) between the one voice and the played pitch from
+/// `from` seconds on, allowing the voice to lag by up to `lag` seconds.
+fn worst_tracking_cents(
+    readouts: &[(f32, Readout)],
+    pitch: impl Fn(f32) -> f32,
+    from: f32,
+    lag: f32,
+) -> f32 {
+    let mut worst = 0.0f32;
+    for (t, r) in readouts.iter().filter(|(t, _)| *t >= from) {
+        let [voice] = &r.voices[..] else {
+            panic!("{t:.3}s: voices {:?}", r.voices);
+        };
+        let best = (0..=20)
+            .map(|i| (voice.pitch - pitch(t - lag * i as f32 / 20.0)).abs())
+            .fold(f32::MAX, f32::min);
+        worst = worst.max(100.0 * best);
+    }
+    worst
+}
+
+#[test]
+fn vibrato_is_tracked_within_the_clip_tolerance() {
+    for note in [33.0, 40.0] {
+        // ±30 cents at 5.5 Hz, a wide finger vibrato.
+        let pitch = |t: f32| note + 0.3 * (std::f32::consts::TAU * 5.5 * t).sin();
+        let dry = moving_tone(1.5, pitch);
+        let readouts = readouts(&mut engine(), &dry);
+        let worst = worst_tracking_cents(&readouts, pitch, 0.3, 0.02);
+        assert!(worst <= 25.0, "MIDI {note}: off by {worst:.1} c");
+    }
+}
+
 /// `TRACE=clip:t0:t1`: prints the notes and voices whenever a voice or
 /// note starts or ends, or a voice moves by a quarter semitone.
 #[test]
