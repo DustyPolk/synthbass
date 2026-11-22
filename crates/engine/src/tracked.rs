@@ -14,6 +14,9 @@ pub const MAX_VOICES: usize = 4;
 /// One sounding voice, as the readout shows it.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct VoiceReading {
+    /// Stays the same from the moment the voice starts until it falls
+    /// silent; a voice that starts again gets a new id.
+    pub id: u32,
     /// Exact pitch as a fractional MIDI note number.
     pub pitch: f32,
     /// Current loudness from string following (linear, ≈ the note's peak
@@ -38,6 +41,8 @@ impl Deref for Voices {
 
 pub struct TrackedLayer {
     voices: [Voice; MAX_VOICES],
+    /// The id the next voice to start gets.
+    next_voice_id: u32,
     string: StringLevel,
     gate: f32,
     waveshape: Smoothed,
@@ -80,6 +85,7 @@ impl TrackedLayer {
     pub fn new(sample_rate: f32) -> Self {
         TrackedLayer {
             voices: std::array::from_fn(|i| Voice::new(sample_rate, i as u32)),
+            next_voice_id: 0,
             string: StringLevel::new(sample_rate),
             gate: NOISE_GATE_DEFAULT,
             waveshape: Smoothed::new(Param::TrackedOsc1Waveshape.default_value(), sample_rate),
@@ -174,6 +180,10 @@ impl TrackedLayer {
             playing[slot] = Some(note);
         }
         for (voice, note) in self.voices.iter_mut().zip(playing) {
+            if !voice.sounding && note.is_some() {
+                self.next_voice_id = self.next_voice_id.wrapping_add(1);
+                voice.id = self.next_voice_id;
+            }
             voice.update(note, string_level);
         }
     }
@@ -266,6 +276,7 @@ const LOUDNESS_SMOOTHING_SECONDS: f32 = 0.005;
 const SILENT: f32 = 1e-5;
 
 struct Voice {
+    id: u32,
     /// The detected note this voice plays, while it still sounds.
     note_id: Option<u32>,
     /// The `repicks` count of the note when the filter envelope last fired.
@@ -292,6 +303,7 @@ impl Voice {
     fn new(sample_rate: f32, index: u32) -> Self {
         let coefficient = |seconds: f32| (-1.0 / (seconds * sample_rate)).exp();
         Voice {
+            id: 0,
             note_id: None,
             repicks: 0,
             sounding: false,
@@ -381,6 +393,7 @@ impl Voice {
 
     fn reading(&self) -> Option<VoiceReading> {
         self.sounding.then_some(VoiceReading {
+            id: self.id,
             pitch: self.pitch,
             loudness: self.loudness,
         })

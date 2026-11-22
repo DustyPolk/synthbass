@@ -2,7 +2,7 @@
 //! notes with a harmonic sieve (Klapuri-style iterative cancellation).
 
 use super::bank::{BAND_COUNT, Bank, LOWEST_BAND, hz_to_midi, midi_to_hz};
-use super::history::History;
+use super::history::{History, Periodicity};
 use super::{F0_RANGE, MAX_DETECTED_NOTES};
 
 /// Partials quieter than this fraction of the gate are ignored outright.
@@ -50,6 +50,18 @@ const QUIET_NEIGHBOUR: f32 = 0.3;
 /// Adjacent bands whose IFs are closer than this (semitones) hear the same
 /// partial.
 const SAME_PARTIAL: f32 = 0.5;
+/// A settled note whose periodicity estimate is at least this clear is a
+/// note on its own, where that estimate is exact to a few cents.
+const CLEAR: f32 = 0.9;
+/// The slow IF lags a slide or a bend by about 60 ms (more with the bank's
+/// own delay on low notes). Once a clear note's periodicity estimate leads
+/// its slow IF by more than `FOLLOW_FROM` semitones the note is moving, and
+/// its pitch blends toward the periodicity estimate, wholly at `FOLLOW_FULL`.
+const FOLLOW_FROM: f32 = 0.2;
+const FOLLOW_FULL: f32 = 0.4;
+/// Hops (about 27 ms) a moving note's bands stay unsettled after it was
+/// last heard moving.
+const MOVING_HOLD_HOPS: u32 = 20;
 /// Harmonics whose slow IF gives a settled note's pitch.
 const SLOW_HARMONICS: usize = 3;
 /// How much a partial with another partial a semitone away (and so pulled
@@ -95,6 +107,13 @@ pub struct RawNote {
     pub level: f32,
 }
 
+/// A note's exact pitch, and whether it is moving faster than the slow IF
+/// can follow.
+struct Refined {
+    pitch: f32,
+    moving: bool,
+}
+
 pub struct Sieve {
     partials: [Partial; BAND_COUNT],
     partial_count: usize,
@@ -106,6 +125,11 @@ pub struct Sieve {
     /// Whether each band has settled on a partial (kept across hops for
     /// hysteresis).
     settled: [bool; BAND_COUNT],
+    /// The pitches (low, high) a note on its own moved across. For
+    /// `moving_hops` more hops a candidate on their harmonics isn't steady
+    /// whatever its bands say: their slow IF lags the slide.
+    moving_span: (f32, f32),
+    moving_hops: u32,
 }
 
 struct Support {
@@ -123,24 +147,32 @@ impl Sieve {
             candidate_count: 0,
             slow: [0.0; BAND_COUNT],
             settled: [false; BAND_COUNT],
+            moving_span: (0.0, 0.0),
+            moving_hops: 0,
         }
     }
 
     /// Finds the notes in the bank's current state, strongest first.
-    /// `sounding` holds the pitches of the notes reported so far.
+    /// `sounding` holds the pitches of the notes reported so far; `picked`
+    /// is true shortly after a pick anywhere.
     pub fn analyse(
         &mut self,
         bank: &Bank,
         history: &History,
         gate: f32,
         sounding: &[f32],
+        picked: bool,
         out: &mut [RawNote; MAX_DETECTED_NOTES],
     ) -> usize {
+        if picked {
+            self.moving_hops = 0;
+        }
         self.pick_partials(bank, gate);
         self.collect_candidates();
 
         let mut count = 0;
         let mut strongest = 0.0;
+        let mut moving = false;
         while count < MAX_DETECTED_NOTES {
             let Some((index, mut support)) = self.best_candidate() else {
                 break;
@@ -193,23 +225,45 @@ impl Sieve {
                 .flatten()
                 .filter(|&&p| self.settled[self.partials[p].band])
                 .count()
-                >= STEADY_PARTIALS;
+                >= STEADY_PARTIALS
+                // A moving note's partials lag behind it in bands that still
+                // look settled.
+                && !(self.moving_hops > 0 && self.on_moving_span(hz_to_midi(f0)));
             if !periodicity.judged
                 || (periodicity.clarity < MIN_CLARITY && !steady)
                 || self.outranked_from_below(bank, history, f0, periodicity.clarity)
             {
                 continue;
             }
-            let pitch = self.refine(bank, f0, hz_to_midi(periodicity.freq), &support.harmonic);
+            // Only a note on its own can be followed by its periodicity,
+            // and not right after a pick: a new note's attack would pull the
+            // ringing one toward it.
+            let alone = sounding.len() <= 1 && !picked;
+            let refined = self.refine(bank, f0, &periodicity, alone, &support.harmonic);
+            let pitch = refined.pitch;
             // Two candidates can settle on the same pitch.
             let duplicate = out[..count].iter().any(|n| (n.pitch - pitch).abs() < 0.5);
             strongest = f32::max(strongest, support.salience);
-            let level = self.claim(&support);
+            let mut level = self.claim(&support);
+            // A sliding note leaves its partials ringing behind it in the
+            // bands it passed; it owns the partials where it is now as well,
+            // or they would start notes of their own.
+            if refined.moving {
+                let (span, passed) = self.claim_passed(hz_to_midi(f0), pitch);
+                level = level.hypot(passed);
+                self.moving_span = span;
+                moving = true;
+            }
             if duplicate || level < gate {
                 continue;
             }
             out[count] = RawNote { pitch, level };
             count += 1;
+        }
+        if moving {
+            self.moving_hops = MOVING_HOLD_HOPS;
+        } else {
+            self.moving_hops = self.moving_hops.saturating_sub(1);
         }
         count
     }
@@ -222,6 +276,42 @@ impl Sieve {
             energy += self.partials[p].amp * self.partials[p].amp;
         }
         energy.sqrt()
+    }
+
+    /// Marks used every unused partial lying, as one of the first
+    /// `HARMONICS` harmonics, between pitches `from` and `to` (a moving
+    /// note's lagging and current pitch) or trailing behind by up to as far
+    /// again: narrow bands lag more than the fundamental's. Returns that
+    /// span of fundamentals and the partials' level.
+    fn claim_passed(&mut self, from: f32, to: f32) -> ((f32, f32), f32) {
+        let behind = from - (to - from);
+        let (low, high) = (
+            behind.min(to) - HARMONIC_TOLERANCE,
+            behind.max(to) + HARMONIC_TOLERANCE,
+        );
+        let mut energy = 0.0;
+        for partial in &mut self.partials[..self.partial_count] {
+            let midi = hz_to_midi(partial.freq);
+            let passed = (1..=HARMONICS).any(|h| {
+                let fundamental = midi - 12.0 * (h as f32).log2();
+                (low..=high).contains(&fundamental)
+            });
+            if !partial.used && passed {
+                partial.used = true;
+                energy += partial.amp * partial.amp;
+            }
+        }
+        ((low, high), energy.sqrt())
+    }
+
+    /// True if `midi` is within half a semitone of one of the first
+    /// `HARMONICS` harmonics of a pitch in the moving span.
+    fn on_moving_span(&self, midi: f32) -> bool {
+        let (low, high) = self.moving_span;
+        (1..=HARMONICS).any(|h| {
+            let fundamental = midi - 12.0 * (h as f32).log2();
+            fundamental >= low - 0.5 && fundamental <= high + 0.5
+        })
     }
 
     /// During an attack the bands haven't separated a low note's partials,
@@ -437,13 +527,17 @@ impl Sieve {
     /// loudness, are more exact. Once a partial's band has settled, the slow
     /// IF of the note's lowest harmonics is the most exact: in a chord
     /// neither the periodicity estimate nor the one-period IF is steady.
+    /// A note on its own that is moving (a slide, a bend, vibrato) follows
+    /// its periodicity estimate, which lags least.
     fn refine(
         &self,
         bank: &Bank,
         f0: f32,
-        periodic_pitch: f32,
+        periodicity: &Periodicity,
+        alone: bool,
         harmonic: &[Option<usize>; HARMONICS],
-    ) -> f32 {
+    ) -> Refined {
+        let periodic_pitch = hz_to_midi(periodicity.freq);
         let mut slow_weighted = 0.0;
         let mut slow_weight = 0.0;
         let mut settled = false;
@@ -457,9 +551,39 @@ impl Sieve {
                 settled |= self.settled[partial.band];
             }
         }
-        if settled {
-            return hz_to_midi(slow_weighted / slow_weight);
+        let slow_pitch = (slow_weight > 0.0).then(|| hz_to_midi(slow_weighted / slow_weight));
+        let banded = if settled {
+            slow_pitch.unwrap_or(periodic_pitch)
+        } else {
+            self.banded_pitch(bank, f0, periodic_pitch, harmonic)
+        };
+        let still = Refined {
+            pitch: banded,
+            moving: false,
+        };
+        let Some(slow_pitch) = slow_pitch else {
+            return still;
+        };
+        if !alone || periodicity.clarity < CLEAR || !(settled || self.moving_hops > 0) {
+            return still;
         }
+        let lead = periodic_pitch - slow_pitch;
+        let follow = ((lead.abs() - FOLLOW_FROM) / (FOLLOW_FULL - FOLLOW_FROM)).clamp(0.0, 1.0);
+        Refined {
+            pitch: banded + (periodic_pitch - banded) * follow,
+            moving: follow > 0.0,
+        }
+    }
+
+    /// An unsettled note's pitch: its fundamental's and second harmonic's
+    /// IF over one period when that agrees with the periodicity estimate.
+    fn banded_pitch(
+        &self,
+        bank: &Bank,
+        f0: f32,
+        periodic_pitch: f32,
+        harmonic: &[Option<usize>; HARMONICS],
+    ) -> f32 {
         let period = (bank.rate() / f0).round() as usize;
         let mut weighted = 0.0;
         let mut weight = 0.0;
