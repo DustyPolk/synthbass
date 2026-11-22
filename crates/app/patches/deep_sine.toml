@@ -1,0 +1,31 @@
+# Dub weight: a loud sine sub under a saw filtered almost to a sine itself,
+# no envelope to speak of. Felt as much as heard.
+version = 2
+name = "Deep Sine"
+
+[direct]
+drive = 0.3
+cutoff_hz = 200.0
+resonance = 0.0
+envelope_sensitivity = 0.02
+level = 0.05
+
+[tracked]
+osc1_waveshape = "saw"
+osc2_waveshape = "saw"
+osc2_octave = 0
+osc2_detune_cents = 6.0
+osc_mix = 0.0
+sub_level = 1.0
+sub_waveshape = "sine"
+cutoff_hz = 180.0
+resonance = 0.0
+filter_envelope_amount = 0.1
+filter_envelope_decay_s = 0.3
+pick_sensitivity = 0.3
+glide_s = 0.0
+level = 1.0
+
+[mix]
+dry_level = 0.1
+output_level = 1.2

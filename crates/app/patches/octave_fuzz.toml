@@ -1,0 +1,31 @@
+# Octavia-style fuzz: the bass driven flat out into a bright filter, with
+# squares an octave up riding on top.
+version = 2
+name = "Octave Fuzz"
+
+[direct]
+drive = 1.0
+cutoff_hz = 2500.0
+resonance = 0.2
+envelope_sensitivity = 0.05
+level = 0.6
+
+[tracked]
+osc1_waveshape = "square"
+osc2_waveshape = "square"
+osc2_octave = 1
+osc2_detune_cents = 0.0
+osc_mix = 0.6
+sub_level = 0.0
+sub_waveshape = "sine"
+cutoff_hz = 2000.0
+resonance = 0.2
+filter_envelope_amount = 0.2
+filter_envelope_decay_s = 0.3
+pick_sensitivity = 0.3
+glide_s = 0.0
+level = 0.6
+
+[mix]
+dry_level = 0.1
+output_level = 1.0

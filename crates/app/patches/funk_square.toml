@@ -1,0 +1,31 @@
+# Clavinet-style funk: squares with a little octave on top, a short snappy
+# filter envelope, and harder picks snapping brighter.
+version = 2
+name = "Funk Square"
+
+[direct]
+drive = 0.3
+cutoff_hz = 500.0
+resonance = 0.3
+envelope_sensitivity = 0.1
+level = 0.15
+
+[tracked]
+osc1_waveshape = "square"
+osc2_waveshape = "square"
+osc2_octave = 1
+osc2_detune_cents = 4.0
+osc_mix = 0.35
+sub_level = 0.2
+sub_waveshape = "sine"
+cutoff_hz = 220.0
+resonance = 0.45
+filter_envelope_amount = 0.75
+filter_envelope_decay_s = 0.12
+pick_sensitivity = 0.7
+glide_s = 0.0
+level = 0.8
+
+[mix]
+dry_level = 0.2
+output_level = 1.0

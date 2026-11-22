@@ -1,0 +1,31 @@
+# 303-style acid: a resonant saw with a deep, quick envelope, sliding
+# between notes. Brighter and slidier than Squelch.
+version = 2
+name = "Acid Glide"
+
+[direct]
+drive = 0.7
+cutoff_hz = 300.0
+resonance = 0.5
+envelope_sensitivity = 0.1
+level = 0.05
+
+[tracked]
+osc1_waveshape = "saw"
+osc2_waveshape = "saw"
+osc2_octave = 0
+osc2_detune_cents = 6.0
+osc_mix = 0.0
+sub_level = 0.0
+sub_waveshape = "sine"
+cutoff_hz = 300.0
+resonance = 0.8
+filter_envelope_amount = 0.85
+filter_envelope_decay_s = 0.25
+pick_sensitivity = 0.6
+glide_s = 0.12
+level = 0.75
+
+[mix]
+dry_level = 0.1
+output_level = 1.0

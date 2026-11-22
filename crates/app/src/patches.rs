@@ -8,13 +8,19 @@ use synthbass_engine::Patch;
 use crate::atomic_file;
 
 /// The built-in patch files. The first is what a first launch plays.
-const BUILT_IN: [(&str, &str); 6] = [
+const BUILT_IN: [(&str, &str); 12] = [
     ("pluck", include_str!("../patches/pluck.toml")),
     ("fat_sub", include_str!("../patches/fat_sub.toml")),
     ("squelch", include_str!("../patches/squelch.toml")),
     ("detuned_saw", include_str!("../patches/detuned_saw.toml")),
     ("soft_round", include_str!("../patches/soft_round.toml")),
     ("octave_lead", include_str!("../patches/octave_lead.toml")),
+    ("deep_sine", include_str!("../patches/deep_sine.toml")),
+    ("reese", include_str!("../patches/reese.toml")),
+    ("funk_square", include_str!("../patches/funk_square.toml")),
+    ("octave_fuzz", include_str!("../patches/octave_fuzz.toml")),
+    ("envelope_wah", include_str!("../patches/envelope_wah.toml")),
+    ("acid_glide", include_str!("../patches/acid_glide.toml")),
 ];
 
 pub struct PatchLibrary {
@@ -379,7 +385,13 @@ mod tests {
                 "Squelch",
                 "Detuned Saw",
                 "Soft Round",
-                "Octave Lead"
+                "Octave Lead",
+                "Deep Sine",
+                "Reese",
+                "Funk Square",
+                "Octave Fuzz",
+                "Envelope Wah",
+                "Acid Glide",
             ]
         );
         for patch in library.built_in() {

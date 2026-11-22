@@ -1,0 +1,31 @@
+# Two saws a quarter-tone apart through a mid lowpass, beating slowly and
+# darkly over a sine sub. Thicker and meaner than Detuned Saw.
+version = 2
+name = "Reese"
+
+[direct]
+drive = 0.6
+cutoff_hz = 350.0
+resonance = 0.2
+envelope_sensitivity = 0.04
+level = 0.1
+
+[tracked]
+osc1_waveshape = "saw"
+osc2_waveshape = "saw"
+osc2_octave = 0
+osc2_detune_cents = 25.0
+osc_mix = 0.5
+sub_level = 0.4
+sub_waveshape = "sine"
+cutoff_hz = 450.0
+resonance = 0.2
+filter_envelope_amount = 0.2
+filter_envelope_decay_s = 0.6
+pick_sensitivity = 0.3
+glide_s = 0.02
+level = 0.85
+
+[mix]
+dry_level = 0.1
+output_level = 1.3
