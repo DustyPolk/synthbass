@@ -409,3 +409,101 @@ pub fn score_voices(clip: &Clip, run: &ClipRun) -> VoiceScore {
         lingering_seconds,
     }
 }
+
+/// How one slide event came out, judged inside its window (onset and offset
+/// each pulled in by the timing tolerance).
+#[derive(Debug)]
+pub struct SlideScore {
+    pub onset: f32,
+    /// Share of the window that the voice sounding at its end (the slide's
+    /// voice) sounds: 1 when one voice carries the whole slide, less when it
+    /// started partway (a restart).
+    pub carried: f32,
+    /// Share of the window with any other voice sounding.
+    pub extra: f32,
+    /// Cents from the start note over the window's first tenth of a second,
+    /// and from the arrival note over its last (median of the slide's voice;
+    /// `None` when it isn't sounding there).
+    pub start_cents: Option<f32>,
+    pub end_cents: Option<f32>,
+    /// Largest pitch change (semitones) of the slide's voice between
+    /// consecutive readouts.
+    pub largest_step: f32,
+}
+
+impl std::fmt::Display for SlideScore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let cents = |c: Option<f32>| c.map_or("-".into(), |c| format!("{c:+.0}c"));
+        write!(
+            f,
+            "  {:6.2}s carried {:.2} extra {:.2} start {} end {} largest step {:.2} st",
+            self.onset,
+            self.carried,
+            self.extra,
+            cents(self.start_cents),
+            cents(self.end_cents),
+            self.largest_step
+        )
+    }
+}
+
+/// Scores each slide in `clip` against the voices in `run`.
+pub fn score_slides(clip: &Clip, run: &ClipRun) -> Vec<SlideScore> {
+    const EDGE_SECONDS: f32 = 0.1;
+    let tol = clip.expected.timing_tolerance;
+    let mut scores = Vec::new();
+    for event in &clip.expected.events {
+        let [Pitch::Slide { from, to }] = event.notes[..] else {
+            continue;
+        };
+        let (start, end) = (event.onset + tol, event.offset - tol);
+        let window: Vec<(f32, &Readout)> = run
+            .readouts
+            .iter()
+            .filter(|(t, _)| *t >= start && *t <= end)
+            .map(|(t, r)| (*t, r))
+            .collect();
+        let total = window.len().max(1) as f32;
+        let carrier = window.last().and_then(|(_, r)| {
+            r.voices
+                .iter()
+                .max_by(|a, b| a.loudness.total_cmp(&b.loudness))
+                .map(|v| v.id)
+        });
+        let path: Vec<(f32, f32)> = window
+            .iter()
+            .filter_map(|(t, r)| {
+                r.voices
+                    .iter()
+                    .find(|v| Some(v.id) == carrier)
+                    .map(|v| (*t, v.pitch))
+            })
+            .collect();
+        let extra = window
+            .iter()
+            .filter(|(_, r)| r.voices.iter().any(|v| Some(v.id) != carrier))
+            .count() as f32;
+        let median_cents = |from: f32, until: f32, target: f32| {
+            let mut pitches: Vec<f32> = path
+                .iter()
+                .filter(|(t, _)| *t >= from && *t <= until)
+                .map(|(_, p)| *p)
+                .collect();
+            pitches.sort_by(f32::total_cmp);
+            (!pitches.is_empty())
+                .then(|| 100.0 * (pitches[pitches.len() / 2] - hz_to_midi(target)))
+        };
+        scores.push(SlideScore {
+            onset: event.onset,
+            carried: path.len() as f32 / total,
+            extra: extra / total,
+            start_cents: median_cents(start, start + EDGE_SECONDS, from),
+            end_cents: median_cents(end - EDGE_SECONDS, end, to),
+            largest_step: path
+                .windows(2)
+                .map(|w| (w[1].1 - w[0].1).abs())
+                .fold(0.0, f32::max),
+        });
+    }
+    scores
+}

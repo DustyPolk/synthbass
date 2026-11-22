@@ -53,6 +53,9 @@ const SAME_PARTIAL: f32 = 0.5;
 /// A settled note whose periodicity estimate is at least this clear is a
 /// note on its own, where that estimate is exact to a few cents.
 const CLEAR: f32 = 0.9;
+/// Crossing a fret blurs the periodicity for a moment: a note already
+/// moving keeps following down to this clarity.
+const STILL_CLEAR: f32 = 0.75;
 /// The slow IF lags a slide or a bend by about 60 ms (more with the bank's
 /// own delay on low notes). Once a clear note's periodicity estimate leads
 /// its slow IF by more than `FOLLOW_FROM` semitones the note is moving, and
@@ -130,6 +133,8 @@ pub struct Sieve {
     /// whatever its bands say: their slow IF lags the slide.
     moving_span: (f32, f32),
     moving_hops: u32,
+    /// The moving note's pitch when last heard moving.
+    moving_pitch: f32,
 }
 
 struct Support {
@@ -149,24 +154,20 @@ impl Sieve {
             settled: [false; BAND_COUNT],
             moving_span: (0.0, 0.0),
             moving_hops: 0,
+            moving_pitch: 0.0,
         }
     }
 
     /// Finds the notes in the bank's current state, strongest first.
-    /// `sounding` holds the pitches of the notes reported so far; `picked`
-    /// is true shortly after a pick anywhere.
+    /// `sounding` holds the pitches of the notes reported so far.
     pub fn analyse(
         &mut self,
         bank: &Bank,
         history: &History,
         gate: f32,
         sounding: &[f32],
-        picked: bool,
         out: &mut [RawNote; MAX_DETECTED_NOTES],
     ) -> usize {
-        if picked {
-            self.moving_hops = 0;
-        }
         self.pick_partials(bank, gate);
         self.collect_candidates();
 
@@ -238,8 +239,8 @@ impl Sieve {
             // Only a note on its own can be followed by its periodicity,
             // and not right after a pick: a new note's attack would pull the
             // ringing one toward it.
-            let alone = sounding.len() <= 1 && !picked;
-            let refined = self.refine(bank, f0, &periodicity, alone, &support.harmonic);
+            let alone = sounding.len() <= 1;
+            let refined = self.refine(bank, f0, history, &periodicity, alone, &support.harmonic);
             let pitch = refined.pitch;
             // Two candidates can settle on the same pitch.
             let duplicate = out[..count].iter().any(|n| (n.pitch - pitch).abs() < 0.5);
@@ -252,6 +253,7 @@ impl Sieve {
                 let (span, passed) = self.claim_passed(hz_to_midi(f0), pitch);
                 level = level.hypot(passed);
                 self.moving_span = span;
+                self.moving_pitch = pitch;
                 moving = true;
             }
             if duplicate || level < gate {
@@ -533,11 +535,12 @@ impl Sieve {
         &self,
         bank: &Bank,
         f0: f32,
+        history: &History,
         periodicity: &Periodicity,
         alone: bool,
         harmonic: &[Option<usize>; HARMONICS],
     ) -> Refined {
-        let periodic_pitch = hz_to_midi(periodicity.freq);
+        let mut periodic_pitch = hz_to_midi(periodicity.freq);
         let mut slow_weighted = 0.0;
         let mut slow_weight = 0.0;
         let mut settled = false;
@@ -564,7 +567,25 @@ impl Sieve {
         let Some(slow_pitch) = slow_pitch else {
             return still;
         };
-        if !alone || periodicity.clarity < CLEAR || !(settled || self.moving_hops > 0) {
+        if !alone || !(settled || self.moving_hops > 0) {
+            return still;
+        }
+        let mut clarity = periodicity.clarity;
+        // A fretted slide steps a semitone at a time, too fast for a search
+        // around the lagging candidate: look where the note was last hop.
+        if self.moving_hops > 0 {
+            let near = history.periodicity(midi_to_hz(self.moving_pitch), bank.rate());
+            if near.clarity > clarity {
+                periodic_pitch = hz_to_midi(near.freq);
+                clarity = near.clarity;
+            }
+        }
+        let clear = if self.moving_hops > 0 {
+            STILL_CLEAR
+        } else {
+            CLEAR
+        };
+        if clarity < clear {
             return still;
         }
         let lead = periodic_pitch - slow_pitch;

@@ -93,3 +93,28 @@ fn trace_clip() {
         }
     }
 }
+
+/// The bassist's slides clip: three slides on the E string, each picked
+/// once (F#1 → B1, B1 → F#1, A1 → E2).
+#[test]
+fn each_recorded_slide_plays_as_one_voice_moving_from_start_to_end_note() {
+    use common::clip::{clip_path, load_clip, run_clip, score_slides};
+    let clip = load_clip(&clip_path("slides"));
+    let run = run_clip(&clip, &[128]);
+    let tolerance = clip.expected.cents_tolerance;
+    let scores = score_slides(&clip, &run);
+    assert_eq!(scores.len(), 3);
+    let mut failures = Vec::new();
+    for s in &scores {
+        println!("{s}");
+        let near = |c: Option<f32>| c.is_some_and(|c| c.abs() <= tolerance);
+        // One voice from start to end; another voice (an attack ghost) only
+        // briefly. Fretted slides step from fret to fret: anything bigger is
+        // a jump to another note.
+        let one_voice = s.carried >= 0.95 && s.extra <= 0.05;
+        if !one_voice || !near(s.start_cents) || !near(s.end_cents) || s.largest_step > 1.0 {
+            failures.push(s.to_string());
+        }
+    }
+    assert!(failures.is_empty(), "\n{}", failures.join("\n"));
+}

@@ -191,6 +191,15 @@ impl Tracker {
             sounding[sounding_count] = t.note.pitch;
             sounding_count += 1;
         }
+        let count = self.sieve.analyse(
+            &self.bank,
+            &self.history,
+            self.gate,
+            &sounding[..sounding_count],
+            &mut heard,
+        );
+        let mut matched = [false; MAX_DETECTED_NOTES];
+
         let pick_level = self.pick_meter.level();
         let oldest = &mut self.pick_history[self.pick_history_index];
         self.hops_since_pick = if pick_level > PICK_JUMP * *oldest && pick_level >= self.gate {
@@ -200,18 +209,7 @@ impl Tracker {
         };
         *oldest = pick_level;
         self.pick_history_index = (self.pick_history_index + 1) % PICK_HOPS;
-        let picked = self.hops_since_pick <= self.pick_window_hops;
-        let count = self.sieve.analyse(
-            &self.bank,
-            &self.history,
-            self.gate,
-            &sounding[..sounding_count],
-            picked,
-            &mut heard,
-        );
-        let mut matched = [false; MAX_DETECTED_NOTES];
-
-        let repick_rise = if picked {
+        let repick_rise = if self.hops_since_pick <= self.pick_window_hops {
             REPICK_RISE_AFTER_PICK
         } else {
             REPICK_RISE
