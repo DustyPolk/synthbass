@@ -2,9 +2,14 @@
 
 **What to build:** close the gaps ticket 07 left in polyphonic tracking, measured on the recorded clips. Each gap is an exempt event in `crates/engine/tests/recorded_polyphony.rs` (the `known` lists); fixing one means deleting its exemption.
 
-**Blocked by:** 07 (Four-voice polyphony)
+**Blocked by:** 07 (Four-voice polyphony), 08 (Slides, bends and glide) — both reshape the tracker, so they run in sequence
 
-**Status:** needs-triage
+**Status:** ready-for-agent
+
+**Decisions already made (orchestrator, for the bassist):**
+- Thirds 30.60 s (G1+B1): treat the take as unusable (weakly fretted, open strings ringing louder). Remove that event from `double-stop-thirds.notes` with a comment saying why, rather than tuning the tracker to it.
+- open-strings 8.34 s: the clip deliberately lets strings ring into the next. Extend the expectation so E1 is allowed (not required) to keep sounding for its natural decay under A1; if the format can't express "allowed", list E1 alongside A1 until it decays below the gate.
+- chromatic-run D2/E2: fretted intonation on this bass really is ~15–20 c flat high on the neck. Raise that clip's cents tolerance to 25.
 
 **Context budget:** finish within one fresh context, well under 150K tokens. Delegate bulky clip analysis to a subagent. `cargo test --release --test recorded_polyphony print_scores -- --ignored --nocapture` prints per-event coverage/extra; `print_voice_histograms` (env `CLIPS=`) shows which semitones voices sit on; `tracker/probe.rs` has spectrum, note-dump and repick probes.
 
