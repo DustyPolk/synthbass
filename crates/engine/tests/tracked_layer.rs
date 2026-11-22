@@ -4,7 +4,7 @@
 mod common;
 
 use common::*;
-use synthbass_engine::{Engine, Param, VoiceReading};
+use synthbass_engine::{Engine, NoiseGate, Param, VoiceReading};
 
 const A1: f32 = 33.0;
 
@@ -137,7 +137,7 @@ fn muting_the_string_ends_the_voice_and_its_sound() {
 #[test]
 fn a_note_decaying_below_the_noise_gate_ends_the_voice() {
     let mut engine = tracked_only();
-    engine.set_noise_gate(0.05);
+    engine.set_noise_gate(NoiseGate::new(0.05).unwrap());
     // 0.4 · e^(−t / 1.5) falls below 0.05 around 3.1 s.
     let out = render(&mut engine, &bass_tone(hz(A1), 0.4, 1.0, 4.0), &[128]).left;
     assert!(engine.readout().voices.is_empty());
@@ -209,11 +209,12 @@ fn dry_signal_direct_layer_and_tracked_layer_mix_by_their_levels() {
     assert!(peak(&all) < synthbass_engine::LIMITER_CEILING);
 }
 
+/// A gate that is not a number cannot be made at all (see `noise_gate.rs`).
 #[test]
-fn an_out_of_range_or_nan_noise_gate_does_not_silence_the_tracked_layer() {
-    for threshold in [5.0, f32::NAN, f32::INFINITY] {
+fn an_out_of_range_noise_gate_does_not_silence_the_tracked_layer() {
+    for threshold in [5.0, f32::MAX] {
         let mut engine = tracked_only();
-        engine.set_noise_gate(threshold);
+        engine.set_noise_gate(NoiseGate::new(threshold).unwrap());
         render(&mut engine, &bass_tone(hz(A1), 0.4, 1.0, 0.5), &[128]);
         let voices = engine.readout().voices;
         assert_eq!(voices.len(), 1, "gate {threshold}: {voices:?}");

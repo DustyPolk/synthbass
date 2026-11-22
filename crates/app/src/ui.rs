@@ -7,11 +7,11 @@ use std::time::Duration;
 use eframe::egui;
 use rtrb::Consumer;
 use synthbass_engine::{
-    Format, LEVEL_FLOOR_DB, MAX_VOICES, NOISE_GATE_RANGE, Param, Readout, Section, TunerReading,
-    gain_to_db,
+    Format, LEVEL_FLOOR_DB, MAX_VOICES, NoiseGate, Octave, Param, Readout, Section, TunerReading,
+    Waveshape, gain_to_db,
 };
 
-use crate::audio::{NoiseGate, SoundParams};
+use crate::audio::{SharedNoiseGate, SoundParams};
 use crate::connection::Connection;
 use crate::patch_panel::PatchPanel;
 use crate::patches::PatchLibrary;
@@ -27,7 +27,7 @@ pub struct SynthbassApp {
     /// it came from.
     current: Patch,
     patches: PatchPanel,
-    noise_gate: NoiseGate,
+    noise_gate: SharedNoiseGate,
     gate_threshold: f32,
     settings: settings::Store,
 }
@@ -37,7 +37,7 @@ impl SynthbassApp {
         sound: SoundParams,
         readouts: Consumer<Readout>,
         connection: Connection,
-        noise_gate: NoiseGate,
+        noise_gate: SharedNoiseGate,
         settings: settings::Store,
         library: PatchLibrary,
     ) -> Self {
@@ -49,7 +49,7 @@ impl SynthbassApp {
             connection,
             current: patch.clone(),
             patches,
-            gate_threshold: noise_gate.get(),
+            gate_threshold: noise_gate.get().threshold(),
             noise_gate,
             settings,
         };
@@ -92,19 +92,21 @@ impl SynthbassApp {
     }
 
     fn noise_gate_knob(&mut self, ui: &mut egui::Ui) {
-        let slider = egui::Slider::new(&mut self.gate_threshold, NOISE_GATE_RANGE)
+        let slider = egui::Slider::new(&mut self.gate_threshold, NoiseGate::RANGE)
             .logarithmic(true)
             .text("Noise gate")
             .custom_formatter(|gain, _| Format::Level.text(gain as f32));
         let response = ui.add(slider);
+        let Some(gate) = NoiseGate::new(self.gate_threshold) else {
+            return;
+        };
         if response.changed() {
-            self.noise_gate.set(self.gate_threshold);
+            self.noise_gate.set(gate);
         }
         // Save once a drag ends rather than on every frame of it.
         if response.drag_stopped() || (response.changed() && !response.dragged()) {
-            let threshold = self.gate_threshold;
             // A failed save only costs the threshold at the next launch.
-            let _ = self.settings.update(|s| s.noise_gate = threshold);
+            let _ = self.settings.update(|s| s.noise_gate = gate);
         }
     }
 
@@ -113,8 +115,14 @@ impl SynthbassApp {
     fn control(&mut self, ui: &mut egui::Ui, param: Param) {
         let info = param.info();
         match info.format {
-            Format::Waveshape => self.switch(ui, param, &[0.0, 1.0]),
-            Format::Octave => self.switch(ui, param, &[-1.0, 0.0, 1.0]),
+            Format::Waveshape => {
+                self.switch(ui, param, &Waveshape::ALL.map(Waveshape::value), |v| {
+                    Waveshape::from_value(v).value()
+                })
+            }
+            Format::Octave => self.switch(ui, param, &Octave::ALL.map(Octave::value), |v| {
+                Octave::from_value(v).value()
+            }),
             _ => self.knob(ui, param),
         }
     }
@@ -131,10 +139,17 @@ impl SynthbassApp {
         }
     }
 
-    /// One button per choice, e.g. saw / square or −1 / 0 / +1.
-    fn switch(&mut self, ui: &mut egui::Ui, param: Param, choices: &[f32]) {
+    /// One button per choice, e.g. saw / square or −1 / 0 / +1; the one lit
+    /// is the choice the current value reads as (`choice_of`).
+    fn switch(
+        &mut self,
+        ui: &mut egui::Ui,
+        param: Param,
+        choices: &[f32],
+        choice_of: fn(f32) -> f32,
+    ) {
         let info = param.info();
-        let before = self.current.get(param);
+        let before = choice_of(self.current.get(param));
         let mut value = before;
         ui.horizontal(|ui| {
             for &choice in choices {

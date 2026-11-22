@@ -1,7 +1,7 @@
 //! The patch record: a named, versioned set of every sound parameter, and its
 //! human-readable file format.
 
-use crate::{Format, Param};
+use crate::{Format, Octave, Param, Waveshape};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Patch {
@@ -80,14 +80,12 @@ fn field(param: Param) -> (&'static str, &'static str) {
     (info.section.key(), info.key)
 }
 
-const WAVESHAPES: [&str; 2] = ["saw", "square"];
-
 /// Waveshapes are written by name and octaves as whole numbers, so a file
 /// reads the way the window does.
 fn encode(param: Param, value: f32) -> toml::Value {
     match param.info().format {
-        Format::Waveshape => WAVESHAPES[usize::from(value >= 0.5)].into(),
-        Format::Octave => (value.round() as i64).into(),
+        Format::Waveshape => Waveshape::from_value(value).name().into(),
+        Format::Octave => i64::from(Octave::from_value(value).octaves()).into(),
         // The shortest decimal that reads back as the same f32 (0.37, not
         // 0.3700000047683716).
         _ => value
@@ -102,7 +100,7 @@ fn encode(param: Param, value: f32) -> toml::Value {
 fn decode(param: Param, value: &toml::Value) -> Option<f32> {
     let number = match value {
         toml::Value::String(name) => match param.info().format {
-            Format::Waveshape => WAVESHAPES.iter().position(|shape| shape == name)? as f64,
+            Format::Waveshape => Waveshape::from_name(name)?.value().into(),
             _ => return None,
         },
         toml::Value::Integer(n) => *n as f64,

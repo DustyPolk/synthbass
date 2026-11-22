@@ -1,7 +1,7 @@
 mod common;
 
 use common::*;
-use synthbass_engine::{Engine, LIMITER_CEILING, Param};
+use synthbass_engine::{Engine, LIMITER_CEILING, NoiseGate, Param};
 
 /// An engine whose output is the direct layer alone.
 fn direct_only() -> Engine {
@@ -183,7 +183,7 @@ fn the_idle_noise_floor_at_max_drive_is_silenced_below_the_noise_gate() {
     let floor = noise(10f32.powf(-104.0 / 20.0), 1.5);
     let mut engine = direct_only();
     engine.set_param(Param::DirectDrive, 1.0);
-    engine.set_noise_gate(0.002);
+    engine.set_noise_gate(NoiseGate::new(0.002).unwrap());
     let out = render(&mut engine, &floor, &[128]).left;
     assert_eq!(peak(&out[(0.5 * SAMPLE_RATE) as usize..]), 0.0);
 }
@@ -191,16 +191,17 @@ fn the_idle_noise_floor_at_max_drive_is_silenced_below_the_noise_gate() {
 #[test]
 fn notes_above_the_noise_gate_still_play_through_the_direct_layer() {
     let mut engine = direct_only();
-    engine.set_noise_gate(0.05);
+    engine.set_noise_gate(NoiseGate::new(0.05).unwrap());
     let out = render(&mut engine, &sine(110.0, 0.1, 0.5), &[128]).left;
     assert!(peak(&out[12_000..]) > 0.05, "{}", peak(&out[12_000..]));
 }
 
+/// A gate that is not a number cannot be made at all (see `noise_gate.rs`).
 #[test]
-fn an_out_of_range_or_nan_noise_gate_does_not_silence_the_direct_layer() {
-    for threshold in [5.0, f32::NAN, f32::INFINITY] {
+fn an_out_of_range_noise_gate_does_not_silence_the_direct_layer() {
+    for threshold in [5.0, f32::MAX] {
         let mut engine = direct_only();
-        engine.set_noise_gate(threshold);
+        engine.set_noise_gate(NoiseGate::new(threshold).unwrap());
         let out = render(&mut engine, &sine(110.0, 0.4, 0.5), &[128]).left;
         assert!(
             peak(&out[12_000..]) > 0.05,

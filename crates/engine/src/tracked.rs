@@ -4,9 +4,10 @@
 use std::ops::Deref;
 
 use crate::ladder::LadderFilter;
-use crate::param::Param;
+use crate::noise_gate::NoiseGate;
+use crate::param::{Octave, Param, Waveshape};
 use crate::smoothed::Smoothed;
-use crate::tracker::{DetectedNote, NOISE_GATE_DEFAULT};
+use crate::tracker::DetectedNote;
 
 /// The most voices that sound at once.
 pub const MAX_VOICES: usize = 4;
@@ -60,10 +61,7 @@ pub struct TrackedLayer {
     gate: f32,
     waveshape: Smoothed,
     osc2_waveshape: Smoothed,
-    /// Oscillator 2's octave plus detune, in octaves; set from both params.
-    osc2_octave: f32,
-    osc2_detune: f32,
-    osc2_log2_ratio: Smoothed,
+    osc2_tuning: Osc2Tuning,
     osc_mix: Smoothed,
     sub_level: Smoothed,
     log2_cutoff: Smoothed,
@@ -110,18 +108,10 @@ impl TrackedLayer {
             samples_since_ended: usize::MAX,
             glide_memory_samples: (GLIDE_MEMORY_SECONDS * sample_rate) as usize,
             string: StringLevel::new(sample_rate),
-            gate: NOISE_GATE_DEFAULT,
+            gate: NoiseGate::default().threshold(),
             waveshape: Smoothed::new(Param::TrackedOsc1Waveshape.default_value(), sample_rate),
             osc2_waveshape: Smoothed::new(Param::TrackedOsc2Waveshape.default_value(), sample_rate),
-            osc2_octave: Param::TrackedOsc2Octave.default_value(),
-            osc2_detune: Param::TrackedOsc2Detune.default_value(),
-            osc2_log2_ratio: Smoothed::new(
-                osc2_log2_ratio(
-                    Param::TrackedOsc2Octave.default_value(),
-                    Param::TrackedOsc2Detune.default_value(),
-                ),
-                sample_rate,
-            ),
+            osc2_tuning: Osc2Tuning::new(sample_rate),
             osc_mix: Smoothed::new(Param::TrackedOscMix.default_value(), sample_rate),
             sub_level: Smoothed::new(Param::TrackedSubLevel.default_value(), sample_rate),
             // Smoothed in octaves so sweeps sound even across the range.
@@ -148,17 +138,14 @@ impl TrackedLayer {
     /// Takes an already-clamped value for one of the tracked layer's params.
     pub fn set_param(&mut self, param: Param, value: f32) {
         match param {
-            Param::TrackedOsc1Waveshape => self.waveshape.set_target(value.round()),
-            Param::TrackedOsc2Waveshape => self.osc2_waveshape.set_target(value.round()),
-            Param::TrackedOsc2Octave | Param::TrackedOsc2Detune => {
-                if param == Param::TrackedOsc2Octave {
-                    self.osc2_octave = value.round();
-                } else {
-                    self.osc2_detune = value;
-                }
-                self.osc2_log2_ratio
-                    .set_target(osc2_log2_ratio(self.osc2_octave, self.osc2_detune));
-            }
+            Param::TrackedOsc1Waveshape => self
+                .waveshape
+                .set_target(Waveshape::from_value(value).value()),
+            Param::TrackedOsc2Waveshape => self
+                .osc2_waveshape
+                .set_target(Waveshape::from_value(value).value()),
+            Param::TrackedOsc2Octave => self.osc2_tuning.set_octave(Octave::from_value(value)),
+            Param::TrackedOsc2Detune => self.osc2_tuning.set_detune(value),
             Param::TrackedOscMix => self.osc_mix.set_target(value),
             Param::TrackedSubLevel => self.sub_level.set_target(value),
             Param::TrackedLevel => self.level.set_target(value),
@@ -267,7 +254,7 @@ impl TrackedLayer {
         let sound = Sound {
             osc1_square: self.waveshape.next(),
             osc2_square: self.osc2_waveshape.next(),
-            osc2_ratio: self.osc2_log2_ratio.next().exp2(),
+            osc2_ratio: self.osc2_tuning.next_ratio(),
             osc_mix: self.osc_mix.next(),
             sub_level: self.sub_level.next(),
             log2_cutoff: self.log2_cutoff.next(),
@@ -335,8 +322,47 @@ fn pick_velocity(onset_strength: f32) -> f32 {
     ((db - SOFTEST_PICK_DB) / (HARDEST_PICK_DB - SOFTEST_PICK_DB)).clamp(0.0, 1.0)
 }
 
-fn osc2_log2_ratio(octave: f32, detune_cents: f32) -> f32 {
-    octave + detune_cents / 1200.0
+/// Oscillator 2's tuning against oscillator 1: its octave switch, its
+/// detune, and the frequency ratio the two make, which moves smoothly to
+/// follow either. They change only together, so the ratio always matches.
+struct Osc2Tuning {
+    octave: Octave,
+    detune_cents: f32,
+    /// The ratio in octaves.
+    log2_ratio: Smoothed,
+}
+
+impl Osc2Tuning {
+    fn new(sample_rate: f32) -> Self {
+        let octave = Octave::from_value(Param::TrackedOsc2Octave.default_value());
+        let detune_cents = Param::TrackedOsc2Detune.default_value();
+        Osc2Tuning {
+            octave,
+            detune_cents,
+            log2_ratio: Smoothed::new(log2_ratio(octave, detune_cents), sample_rate),
+        }
+    }
+
+    fn set_octave(&mut self, octave: Octave) {
+        self.octave = octave;
+        self.log2_ratio
+            .set_target(log2_ratio(octave, self.detune_cents));
+    }
+
+    fn set_detune(&mut self, cents: f32) {
+        self.detune_cents = cents;
+        self.log2_ratio.set_target(log2_ratio(self.octave, cents));
+    }
+
+    /// Oscillator 2's frequency as a multiple of oscillator 1's, for the
+    /// next sample.
+    fn next_ratio(&mut self) -> f32 {
+        self.log2_ratio.next().exp2()
+    }
+}
+
+fn log2_ratio(octave: Octave, detune_cents: f32) -> f32 {
+    octave.value() + detune_cents / 1200.0
 }
 
 /// Removes the hop-to-hop steps from continuous pitch updates and nothing

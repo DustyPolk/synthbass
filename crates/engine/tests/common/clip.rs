@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use synthbass_engine::{Engine, NOISE_GATE_DEFAULT, Readout, TunerReading};
+use synthbass_engine::{Engine, NoiseGate, Readout, TunerReading};
 
 use super::Rendered;
 
@@ -415,7 +415,7 @@ pub fn score_voices(clip: &Clip, run: &ClipRun) -> VoiceScore {
         let start = end.saturating_sub((QUIET_SECONDS * clip.sample_rate) as usize);
         clip.dry[start..end]
             .iter()
-            .all(|s| s.abs() < NOISE_GATE_DEFAULT)
+            .all(|s| s.abs() < NoiseGate::default().threshold())
     };
     let lingering_seconds = (0..run.readouts.len())
         .filter(|&i| {

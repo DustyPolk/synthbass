@@ -3,7 +3,7 @@
 
 use std::collections::HashSet;
 
-use synthbass_engine::{Param, Section};
+use synthbass_engine::{Octave, Param, Section, Waveshape};
 
 #[test]
 fn every_parameter_has_metadata_with_its_default_inside_its_range() {
@@ -68,4 +68,42 @@ fn parameters_are_grouped_into_the_patch_sections() {
     assert_eq!(Param::DryLevel.info().section, Section::Mix);
     assert_eq!(Section::Tracked.key(), "tracked");
     assert_eq!(Section::Mix.label(), "Mix");
+}
+
+#[test]
+fn a_waveshape_value_reads_as_saw_below_one_half_and_square_from_it() {
+    let cases = [
+        (0.0, Waveshape::Saw),
+        (0.49, Waveshape::Saw),
+        (0.5, Waveshape::Square),
+        (1.0, Waveshape::Square),
+    ];
+    for (value, shape) in cases {
+        assert_eq!(Waveshape::from_value(value), shape, "{value}");
+    }
+    assert_eq!(Waveshape::ALL.map(Waveshape::value), [0.0, 1.0]);
+}
+
+#[test]
+fn an_octave_value_reads_as_the_nearest_whole_octave() {
+    let cases = [
+        (-1.0, Octave::Down),
+        (-0.6, Octave::Down),
+        (-0.4, Octave::Unison),
+        (0.4, Octave::Unison),
+        (0.6, Octave::Up),
+        (1.0, Octave::Up),
+    ];
+    for (value, octave) in cases {
+        assert_eq!(Octave::from_value(value), octave, "{value}");
+    }
+    assert_eq!(Octave::ALL.map(Octave::value), [-1.0, 0.0, 1.0]);
+}
+
+#[test]
+fn a_switch_value_between_choices_displays_as_the_choice_it_plays() {
+    assert_eq!(Param::TrackedOsc1Waveshape.format(0.7), "Square");
+    assert_eq!(Param::TrackedOsc2Waveshape.format(0.3), "Saw");
+    assert_eq!(Param::TrackedOsc2Octave.format(-0.6), "−1");
+    assert_eq!(Param::TrackedOsc2Octave.format(0.6), "+1");
 }

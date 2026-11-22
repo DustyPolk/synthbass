@@ -4,12 +4,12 @@
 
 **Blocked by:** 02 (Engine owns the patch), 06 (Mono-Moog glide)
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Context budget:** finish within one fresh context, well under 150K tokens. Read `GLOSSARY.md`, `.scratch/synthbass-review-followups/spec.md` and the relevant ADRs; skip anything unrelated. Keep test and build output terse (filter to failures).
 
-- [ ] Waveshape and octave are enums; every read of their parameter value goes through one conversion
-- [ ] The noise gate is a validated type; clamping and non-finite rejection happen only inside it; engine and settings both use it
-- [ ] Oscillator 2's octave, detune and pitch ratio are one grouped value
-- [ ] Patch files and settings files from v1 still load identically
-- [ ] All existing tests pass, including the recorded-clip suites, with no new exemptions
+- [x] Waveshape and octave are enums; every read of their parameter value goes through one conversion
+- [x] The noise gate is a validated type; clamping and non-finite rejection happen only inside it; engine and settings both use it
+- [x] Oscillator 2's octave, detune and pitch ratio are one grouped value
+- [x] Patch files and settings files from v1 still load identically
+- [x] All existing tests pass, including the recorded-clip suites, with no new exemptions

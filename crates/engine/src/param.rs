@@ -335,12 +335,8 @@ impl Format {
             }
             Format::Frequency => format!("{value:.0} Hz"),
             Format::Amount => format!("{:.0} %", value * 100.0),
-            Format::Waveshape => if value < 0.5 { "Saw" } else { "Square" }.into(),
-            Format::Octave => match value.round() {
-                octave if octave < 0.0 => format!("−{}", -octave),
-                octave if octave > 0.0 => format!("+{octave}"),
-                _ => "0".into(),
-            },
+            Format::Waveshape => Waveshape::from_value(value).label().into(),
+            Format::Octave => Octave::from_value(value).label().into(),
             Format::Cents => format!("{value:+.0} ¢"),
             Format::Duration { .. } => format!("{:.0} ms", value * 1000.0),
         }
@@ -352,6 +348,99 @@ impl Format {
             self,
             Format::Frequency | Format::Duration { logarithmic: true }
         )
+    }
+}
+
+/// An oscillator's waveshape. Its parameter value is 0 (saw) or 1 (square);
+/// `from_value` is the only reading of that value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Waveshape {
+    Saw,
+    Square,
+}
+
+impl Waveshape {
+    /// In switch order.
+    pub const ALL: [Waveshape; 2] = [Waveshape::Saw, Waveshape::Square];
+
+    /// The shape a parameter value plays: square from one half up.
+    pub fn from_value(value: f32) -> Waveshape {
+        if value < 0.5 {
+            Waveshape::Saw
+        } else {
+            Waveshape::Square
+        }
+    }
+
+    pub const fn value(self) -> f32 {
+        match self {
+            Waveshape::Saw => 0.0,
+            Waveshape::Square => 1.0,
+        }
+    }
+
+    /// The name in a patch file.
+    pub const fn name(self) -> &'static str {
+        match self {
+            Waveshape::Saw => "saw",
+            Waveshape::Square => "square",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Waveshape> {
+        Waveshape::ALL
+            .into_iter()
+            .find(|shape| shape.name() == name)
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Waveshape::Saw => "Saw",
+            Waveshape::Square => "Square",
+        }
+    }
+}
+
+/// Oscillator 2's octave switch. Its parameter value is −1, 0 or +1;
+/// `from_value` is the only reading of that value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum Octave {
+    Down,
+    Unison,
+    Up,
+}
+
+impl Octave {
+    /// In switch order.
+    pub const ALL: [Octave; 3] = [Octave::Down, Octave::Unison, Octave::Up];
+
+    /// The nearest whole octave to a parameter value.
+    pub fn from_value(value: f32) -> Octave {
+        match value.round() {
+            octave if octave < 0.0 => Octave::Down,
+            octave if octave > 0.0 => Octave::Up,
+            _ => Octave::Unison,
+        }
+    }
+
+    pub const fn octaves(self) -> i8 {
+        match self {
+            Octave::Down => -1,
+            Octave::Unison => 0,
+            Octave::Up => 1,
+        }
+    }
+
+    pub const fn value(self) -> f32 {
+        self.octaves() as f32
+    }
+
+    pub const fn label(self) -> &'static str {
+        match self {
+            Octave::Down => "−1",
+            Octave::Unison => "0",
+            Octave::Up => "+1",
+        }
     }
 }
 
