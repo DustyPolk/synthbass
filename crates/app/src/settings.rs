@@ -1,17 +1,74 @@
 //! The app settings file: small state remembered across launches.
 
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
+
+use synthbass_engine::NOISE_GATE_DEFAULT;
 
 use crate::ports::Routing;
 
 /// Everything in the settings file. Every field has a default, so a file
 /// missing newer fields still loads: add new fields the same way.
-#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     pub ports: Routing,
+    /// The patch loaded when the app last ran; `None` on a first launch.
+    pub last_patch: Option<String>,
+    /// The global noise gate threshold (linear amplitude). Not part of any
+    /// patch: it belongs to the room, not the sound.
+    pub noise_gate: f32,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Settings {
+            ports: Routing::default(),
+            last_patch: None,
+            noise_gate: NOISE_GATE_DEFAULT,
+        }
+    }
+}
+
+/// The settings file shared by everyone who changes it (the connection
+/// thread saves ports, the window saves the patch and gate). Every clone
+/// sees and saves one copy, so no holder overwrites another's change.
+#[derive(Clone)]
+pub struct Store {
+    settings: Arc<Mutex<Settings>>,
+    /// `None` when the system has no config directory: changes are kept for
+    /// this run only.
+    path: Option<PathBuf>,
+}
+
+impl Store {
+    /// Reads the file; a warning says why defaults were used instead.
+    pub fn open(path: Option<PathBuf>) -> (Store, Option<String>) {
+        let loaded = path.as_deref().map(Settings::load);
+        let warning = loaded.as_ref().and_then(|l| l.warning.clone());
+        let settings = loaded.map(|l| l.settings).unwrap_or_default();
+        let store = Store {
+            settings: Arc::new(Mutex::new(settings)),
+            path,
+        };
+        (store, warning)
+    }
+
+    pub fn get(&self) -> Settings {
+        self.settings.lock().unwrap().clone()
+    }
+
+    /// Changes the settings and saves the file.
+    pub fn update(&self, change: impl FnOnce(&mut Settings)) -> std::io::Result<()> {
+        let mut settings = self.settings.lock().unwrap();
+        change(&mut settings);
+        match &self.path {
+            Some(path) => settings.save(path),
+            None => Ok(()),
+        }
+    }
 }
 
 /// The result of reading the settings file. A problem with the file never
@@ -117,6 +174,52 @@ mod tests {
     }
 
     #[test]
+    fn a_file_from_before_patches_loads_the_default_gate_and_no_patch() {
+        let path = temp_path("pre-patches");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "[ports]\ninput = \"X:capture_FL\"\n").unwrap();
+        let loaded = Settings::load(&path).settings;
+        assert_eq!(loaded.last_patch, None);
+        assert_eq!(loaded.noise_gate, NOISE_GATE_DEFAULT);
+        assert_eq!(Settings::default().noise_gate, NOISE_GATE_DEFAULT);
+    }
+
+    #[test]
+    fn last_patch_and_noise_gate_survive_a_save_and_load() {
+        let path = temp_path("patch-and-gate");
+        let settings = Settings {
+            last_patch: Some("Mine".into()),
+            noise_gate: 0.0125,
+            ..Settings::default()
+        };
+        settings.save(&path).unwrap();
+        assert_eq!(Settings::load(&path).settings, settings);
+    }
+
+    #[test]
+    fn changes_through_any_clone_of_a_store_all_reach_the_file() {
+        // The connection thread saves ports while the window saves the patch
+        // and gate; neither may undo the other's change.
+        let path = temp_path("store");
+        let (store, warning) = Store::open(Some(path.clone()));
+        assert_eq!(warning, None);
+        let other = store.clone();
+        store
+            .update(|s| s.last_patch = Some("Squelch".into()))
+            .unwrap();
+        other
+            .update(|s| s.ports.input = Some("X:capture_FR".into()))
+            .unwrap();
+        store.update(|s| s.noise_gate = 0.02).unwrap();
+
+        let saved = Settings::load(&path).settings;
+        assert_eq!(saved.last_patch.as_deref(), Some("Squelch"));
+        assert_eq!(saved.ports.input.as_deref(), Some("X:capture_FR"));
+        assert_eq!(saved.noise_gate, 0.02);
+        assert_eq!(other.get(), saved);
+    }
+
+    #[test]
     fn saved_ports_survive_a_save_and_load() {
         let path = temp_path("round-trip");
         let settings = Settings {
@@ -125,6 +228,7 @@ mod tests {
                 output_1: Some("Scarlett:playback_FL".into()),
                 output_2: None,
             },
+            ..Settings::default()
         };
         settings.save(&path).unwrap();
         let loaded = Settings::load(&path);
