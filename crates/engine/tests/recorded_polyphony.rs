@@ -68,24 +68,12 @@ fn open_strings_play_one_voice_each_at_their_pitch() {
 
 #[test]
 fn a_chromatic_run_plays_one_voice_per_note() {
-    check(
-        "chromatic-run",
-        SINGLE_NOTES,
-        &[(9.38, "extra 0.11: attack ghost")],
-    );
+    check("chromatic-run", SINGLE_NOTES, &[]);
 }
 
 #[test]
 fn palm_mutes_end_their_voices_promptly() {
-    check(
-        "palm-mutes",
-        SINGLE_NOTES,
-        &[
-            (11.97, "eighth-note attack ghost"),
-            (12.26, "eighth-note attack ghost since chord tuning"),
-            (12.84, "attack ghost since chord tuning"),
-        ],
-    );
+    check("palm-mutes", SINGLE_NOTES, &[]);
 }
 
 #[test]

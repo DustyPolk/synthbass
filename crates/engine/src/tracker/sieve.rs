@@ -82,6 +82,10 @@ const OCTAVE_BELOW_SALIENCE: f32 = 0.8;
 /// its semitone by beating) must be this loud relative to it to be a new
 /// note.
 const SPARSE_FLOOR: f32 = 0.5;
+/// Right after a pick, while a new note's partials are still growing, the
+/// lagging bands of the note that rang before can hold one of its partials
+/// alone: a sparse candidate then must be louder still to be a new note.
+const SPARSE_FLOOR_AT_PICK: f32 = 0.75;
 /// A sparse candidate this close (semitones) to a sounding note continues
 /// it.
 const CONTINUES: f32 = 0.5;
@@ -108,6 +112,20 @@ pub struct RawNote {
     /// Fractional MIDI pitch.
     pub pitch: f32,
     pub level: f32,
+    /// How periodic the signal is at the note's pitch: 0 when the
+    /// periodicity estimate settled on another pitch, 1 for what is left of
+    /// a sounding note.
+    pub clarity: f32,
+}
+
+/// What the tracker knows going into a hop.
+pub struct Context<'a> {
+    /// The pitches of the notes reported so far.
+    pub sounding: &'a [f32],
+    /// At most one note is being heard.
+    pub alone: bool,
+    /// A pick happened within the pick window.
+    pub picked: bool,
 }
 
 /// A note's exact pitch, and whether it is moving faster than the slow IF
@@ -159,15 +177,19 @@ impl Sieve {
     }
 
     /// Finds the notes in the bank's current state, strongest first.
-    /// `sounding` holds the pitches of the notes reported so far.
     pub fn analyse(
         &mut self,
         bank: &Bank,
         history: &History,
         gate: f32,
-        sounding: &[f32],
+        context: &Context,
         out: &mut [RawNote; MAX_DETECTED_NOTES],
     ) -> usize {
+        let Context {
+            sounding,
+            alone,
+            picked,
+        } = *context;
         self.pick_partials(bank, gate);
         self.collect_candidates();
 
@@ -207,6 +229,7 @@ impl Sieve {
                     out[count] = RawNote {
                         pitch,
                         level: self.claim(&support),
+                        clarity: 1.0,
                     };
                     count += 1;
                     continue;
@@ -215,7 +238,12 @@ impl Sieve {
                     && sounding
                         .iter()
                         .any(|&pitch| (pitch - midi).abs() <= CONTINUES);
-                if !continues && support.salience < SPARSE_FLOOR * strongest {
+                let floor = if picked {
+                    SPARSE_FLOOR_AT_PICK
+                } else {
+                    SPARSE_FLOOR
+                };
+                if !continues && support.salience < floor * strongest {
                     continue;
                 }
             }
@@ -239,7 +267,6 @@ impl Sieve {
             // Only a note on its own can be followed by its periodicity,
             // and not right after a pick: a new note's attack would pull the
             // ringing one toward it.
-            let alone = sounding.len() <= 1;
             let refined = self.refine(bank, f0, history, &periodicity, alone, &support.harmonic);
             let pitch = refined.pitch;
             // Two candidates can settle on the same pitch.
@@ -259,7 +286,19 @@ impl Sieve {
             if duplicate || level < gate {
                 continue;
             }
-            out[count] = RawNote { pitch, level };
+            // The periodicity search spans ±1.5 semitones and can lock onto
+            // a note beside this one (a new note's attack beside the lagging
+            // bands of the note before it).
+            let own_clarity = if (hz_to_midi(periodicity.freq) - pitch).abs() <= SETTLED {
+                periodicity.clarity
+            } else {
+                0.0
+            };
+            out[count] = RawNote {
+                pitch,
+                level,
+                clarity: own_clarity,
+            };
             count += 1;
         }
         if moving {

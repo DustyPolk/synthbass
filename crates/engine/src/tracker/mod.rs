@@ -55,7 +55,7 @@ mod sieve;
 use bank::Bank;
 use decimator::Decimator;
 use history::History;
-use sieve::{RawNote, Sieve};
+use sieve::{Context, RawNote, Sieve};
 
 use crate::readout::{PeakMeter, TunerReading};
 
@@ -74,6 +74,11 @@ const HOP: usize = 8;
 const BIRTH_SECONDS: f32 = 0.004;
 /// A note is reported this long after it was last heard.
 const RELEASE_SECONDS: f32 = 0.015;
+/// A note first heard within the pick window must have been at least this
+/// periodic at its pitch, or be heard for `UNCLEAR_BIRTH_SECONDS`: while the
+/// bands ring from a pick they briefly hold partials of notes nobody played.
+const PICK_CLARITY: f32 = 0.35;
+const UNCLEAR_BIRTH_SECONDS: f32 = 0.04;
 /// A new note must clear the gate by this factor (+3 dB); a sounding note
 /// stays until it falls below the gate itself.
 const BIRTH_HEADROOM: f32 = std::f32::consts::SQRT_2;
@@ -118,6 +123,10 @@ struct Tracked {
     /// Lowest level since the hold-off after the latest onset ended.
     valley: f32,
     hops_since_onset: u32,
+    /// Highest periodicity clarity heard before the note was reported.
+    clarity: f32,
+    /// Hops since the latest pick when the note was first heard.
+    born_after_pick: u32,
 }
 
 pub struct Tracker {
@@ -131,6 +140,7 @@ pub struct Tracker {
     tracked: [Option<Tracked>; MAX_DETECTED_NOTES],
     next_id: u32,
     birth_hops: u32,
+    unclear_birth_hops: u32,
     release_hops: u32,
     tuner_settle_hops: u32,
     repick_holdoff_hops: u32,
@@ -157,6 +167,7 @@ impl Tracker {
             tracked: [None; MAX_DETECTED_NOTES],
             next_id: 0,
             birth_hops: hops(BIRTH_SECONDS),
+            unclear_birth_hops: hops(UNCLEAR_BIRTH_SECONDS),
             release_hops: hops(RELEASE_SECONDS),
             tuner_settle_hops: hops(TUNER_SETTLE_SECONDS),
             repick_holdoff_hops: hops(REPICK_HOLDOFF_SECONDS),
@@ -196,11 +207,29 @@ impl Tracker {
             sounding[sounding_count] = t.note.pitch;
             sounding_count += 1;
         }
+        // A note not yet reported counts too, unless it is near a sounding
+        // note (that note's attack settling): a lone note's periodicity
+        // estimate would follow it to a pitch between the two.
+        let pending_apart = self
+            .tracked
+            .iter()
+            .flatten()
+            .filter(|t| {
+                !t.reported
+                    && !sounding[..sounding_count]
+                        .iter()
+                        .any(|&s| (s - t.note.pitch).abs() <= MATCH_RADIUS)
+            })
+            .count();
         let count = self.sieve.analyse(
             &self.bank,
             &self.history,
             self.gate,
-            &sounding[..sounding_count],
+            &Context {
+                sounding: &sounding[..sounding_count],
+                alone: sounding_count + pending_apart <= 1,
+                picked: self.hops_since_pick <= self.pick_window_hops,
+            },
             &mut heard,
         );
         let mut matched = [false; MAX_DETECTED_NOTES];
@@ -247,6 +276,9 @@ impl Tracker {
                     slot.note.pitch = heard[i].pitch;
                     slot.note.level = heard[i].level;
                     slot.hops_alive += 1;
+                    if !slot.reported {
+                        slot.clarity = slot.clarity.max(heard[i].clarity);
+                    }
                     slot.hops_missed = 0;
                     if slot.reported {
                         slot.hops_since_onset += 1;
@@ -279,6 +311,9 @@ impl Tracker {
                 } else if !t.reported
                     && t.hops_alive >= self.birth_hops
                     && t.note.level >= self.gate * BIRTH_HEADROOM
+                    && (t.clarity >= PICK_CLARITY
+                        || t.born_after_pick > self.pick_window_hops
+                        || t.hops_alive >= self.unclear_birth_hops)
                 {
                     t.reported = true;
                     t.note.onset_strength = self.pick_meter.level();
@@ -304,6 +339,8 @@ impl Tracker {
                 reported: false,
                 valley: 0.0,
                 hops_since_onset: 0,
+                clarity: heard[i].clarity,
+                born_after_pick: self.hops_since_pick,
             });
         }
     }
