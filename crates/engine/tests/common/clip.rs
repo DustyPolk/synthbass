@@ -96,6 +96,8 @@ pub enum Pitch {
     Steady(f32),
     /// Moves continuously from one pitch to another over the event.
     Slide { from: f32, to: f32 },
+    /// Still ringing from before (in Hz): it may sound, but need not.
+    Ringing(f32),
 }
 
 /// One stretch of playing: the notes that sound together from `onset` to
@@ -171,6 +173,9 @@ fn number(text: &str) -> Result<f32, String> {
 }
 
 fn parse_pitch(text: &str) -> Result<Pitch, String> {
+    if let Some(note) = text.strip_prefix('(').and_then(|t| t.strip_suffix(')')) {
+        return hz(note).map(Pitch::Ringing);
+    }
     match text.split_once("->") {
         Some((from, to)) => Ok(Pitch::Slide {
             from: hz(from)?,
@@ -298,7 +303,17 @@ pub fn score_voices(clip: &Clip, run: &ClipRun) -> VoiceScore {
             .iter()
             .filter_map(|p| match p {
                 Pitch::Steady(hz) => Some(hz_to_midi(*hz)),
-                Pitch::Slide { .. } => None,
+                Pitch::Slide { .. } | Pitch::Ringing(_) => None,
+            })
+            .collect()
+    };
+    let ringing = |event: &Event| -> Vec<f32> {
+        event
+            .notes
+            .iter()
+            .filter_map(|p| match p {
+                Pitch::Ringing(hz) => Some(hz_to_midi(*hz)),
+                _ => None,
             })
             .collect()
     };
@@ -313,6 +328,7 @@ pub fn score_voices(clip: &Clip, run: &ClipRun) -> VoiceScore {
         if notes.is_empty() {
             continue;
         }
+        let allowed: Vec<f32> = notes.iter().copied().chain(ringing(event)).collect();
         let (from, to) = (event.onset + tol, event.offset - tol);
         let mut covered = vec![0.0; notes.len()];
         let mut extra = 0.0;
@@ -331,7 +347,7 @@ pub fn score_voices(clip: &Clip, run: &ClipRun) -> VoiceScore {
             if readout
                 .voices
                 .iter()
-                .any(|v| !notes.iter().any(|&n| near(v.pitch, n)))
+                .any(|v| !allowed.iter().any(|&n| near(v.pitch, n)))
             {
                 extra += dt;
             }

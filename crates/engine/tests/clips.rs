@@ -55,6 +55,17 @@ fn description_marks_a_slide_between_two_pitches() {
 }
 
 #[test]
+fn description_marks_a_note_left_ringing_from_before() {
+    let expected = ExpectedNotes::parse("8.3 10.7 A1 (E1)\n").unwrap();
+    let [Pitch::Steady(played), Pitch::Ringing(ringing)] = expected.events[0].notes.as_slice()
+    else {
+        panic!("expected a played and a ringing note, got {:?}", expected.events[0].notes);
+    };
+    assert_hz(*played, 55.0);
+    assert_hz(*ringing, 41.203);
+}
+
+#[test]
 fn description_skips_comments_and_blank_lines_and_reads_tolerances() {
     let text = "\
 # Open strings, let ring

@@ -63,11 +63,7 @@ fn check(name: &str, bar: Bar, known: KnownGaps) {
 
 #[test]
 fn open_strings_play_one_voice_each_at_their_pitch() {
-    check(
-        "open-strings",
-        SINGLE_NOTES,
-        &[(8.34, "E1 rings on under A1 (no mute between strings)")],
-    );
+    check("open-strings", SINGLE_NOTES, &[]);
 }
 
 #[test]

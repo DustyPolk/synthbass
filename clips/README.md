@@ -68,6 +68,9 @@ cents_tolerance 20
 - A slide is `from->to`, e.g. `B1->E2`. The onset is the pick, the offset is
   when the arrival note stops.
 - Palm mutes are ordinary notes; give each muted note its own line.
+- A note in parentheses, e.g. `(E1)`, is still ringing from before: it may
+  sound during the event but need not. Use it when a string is left to ring
+  into the next note.
 - `timing_tolerance <seconds>` and `cents_tolerance <cents>` set how far
   detection may stray for this clip. Defaults: 0.05 s and 20 cents. Raise
   the timing tolerance if the times are rough.

@@ -5,6 +5,6 @@ timing_tolerance 0.1
 cents_tolerance 20
 
 6.36 8.30 E1
-8.34 10.70 A1
+8.34 10.70 A1 (E1)  # E1 rings on through its natural decay (ticket 12)
 10.73 13.65 D2
 13.68 17.09 G2
