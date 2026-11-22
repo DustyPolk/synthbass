@@ -4,6 +4,7 @@
 use eframe::egui;
 
 use crate::connection::{Connection, Status, View};
+use crate::dropdown::{self, Item};
 use crate::ports::Slot;
 
 pub fn show(ui: &mut egui::Ui, connection: &Connection) {
@@ -51,22 +52,16 @@ fn port_dropdown(ui: &mut egui::Ui, connection: &Connection, view: &View, slot: 
         Some(name) if available.iter().any(|p| p == name) => name.to_string(),
         Some(name) => format!("{name} (missing)"),
     };
-    egui::ComboBox::from_id_salt(slot_label(slot))
+    let combo = egui::ComboBox::from_id_salt(slot_label(slot))
         .selected_text(shown)
-        .width(320.0)
-        .show_ui(ui, |ui| {
-            if ui.selectable_label(current.is_none(), "(none)").clicked() {
-                connection.choose(slot, None);
-            }
-            for port in available {
-                if ui
-                    .selectable_label(current == Some(port.as_str()), port)
-                    .clicked()
-                {
-                    connection.choose(slot, Some(port.clone()));
-                }
-            }
-        });
+        .width(320.0);
+    let none = Item::Choice("(none)", current.is_none(), None);
+    let ports = available
+        .iter()
+        .map(|port| Item::Choice(port, current == Some(port.as_str()), Some(port)));
+    if let Some(port) = dropdown::show(ui, combo, std::iter::once(none).chain(ports)) {
+        connection.choose(slot, port.cloned());
+    }
 }
 
 fn slot_label(slot: Slot) -> &'static str {

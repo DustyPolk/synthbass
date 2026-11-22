@@ -3,6 +3,7 @@
 
 use eframe::egui;
 
+use crate::dropdown::{self, Item};
 use crate::patches::PatchLibrary;
 use crate::settings;
 use synthbass_engine::Patch;
@@ -48,24 +49,16 @@ impl PatchPanel {
         let mut focus_name = false;
         ui.horizontal(|ui| {
             let selected = self.loaded.as_ref().map_or("(none)", |p| p.name.as_str());
-            egui::ComboBox::from_label("Patch")
+            fn choice(patch: &Patch) -> Item<'_, &Patch> {
+                Item::Choice(&patch.name, false, patch)
+            }
+            let built_in = self.library.built_in().iter().map(choice);
+            let separator = self.library.user().next().map(|_| Item::Separator);
+            let user = self.library.user().map(choice);
+            let combo = egui::ComboBox::from_label("Patch")
                 .selected_text(selected)
-                .width(200.0)
-                .show_ui(ui, |ui| {
-                    for patch in self.library.built_in() {
-                        if ui.selectable_label(false, &patch.name).clicked() {
-                            picked = Some(patch.clone());
-                        }
-                    }
-                    if self.library.user().next().is_some() {
-                        ui.separator();
-                    }
-                    for patch in self.library.user() {
-                        if ui.selectable_label(false, &patch.name).clicked() {
-                            picked = Some(patch.clone());
-                        }
-                    }
-                });
+                .width(200.0);
+            picked = dropdown::show(ui, combo, built_in.chain(separator).chain(user)).cloned();
             if self.loaded.as_ref() != Some(current) {
                 ui.colored_label(egui::Color32::YELLOW, "• unsaved changes");
             }

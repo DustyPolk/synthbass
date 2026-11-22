@@ -3,6 +3,7 @@
 mod atomic_file;
 mod audio;
 mod connection;
+mod dropdown;
 mod patch_panel;
 mod patches;
 use synthbass::ports;
