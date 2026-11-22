@@ -4,9 +4,9 @@
 
 **Blocked by:** 02 (Recording command)
 
-**Status:** ready-for-human
+**Status:** done
 
-- [ ] Scarlett input 1 on INST, gain set so the input meter peaks without clipping
-- [ ] Clips recorded: each open string; a chromatic run up the E string and the G string; double stops in thirds and tenths; palm-muted notes; slides of several frets up and down
-- [ ] Each clip has its expected-notes description
-- [ ] Clips and descriptions committed to the repo in the clips directory
+- [x] Scarlett input 1 on INST, gain set so the input meter peaks without clipping
+- [x] Clips recorded: each open string; a chromatic run up the E string and the G string; double stops in thirds and tenths; palm-muted notes; slides of several frets up and down
+- [x] Each clip has its expected-notes description
+- [x] Clips and descriptions committed to the repo in the clips directory

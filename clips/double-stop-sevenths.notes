@@ -1,0 +1,11 @@
+# double-stop-sevenths: major sevenths, E string fret N + D string fret N+1
+# (recorded as an attempt at tenths with the upper note on the D string instead of the G string).
+# Drafted from the recording (envelope onsets + Goertzel harmonic spectrum); confirmed by the bassist.
+# Low notes have a weak fundamental (E1 about 7 dB under its 2nd harmonic).
+timing_tolerance 0.15
+cents_tolerance 20
+
+2.48 7.72 E1 D#2
+11.02 15.16 G1 F#2
+16.28 20.76 A1 G#2
+22.04 27.24 G1 F#2

@@ -1,0 +1,9 @@
+# double-stop-tenths: E string fret N + G string fret N+1
+# Drafted from the recording (envelope onsets + Goertzel harmonic spectrum); confirmed by the bassist.
+# Low notes have a weak fundamental; the upper note's 2nd harmonic is the loudest partial.
+timing_tolerance 0.15
+cents_tolerance 20
+
+7.36 12.48 E1 G#2
+13.80 17.34 F#1 A#2
+18.58 22.80 A1 C#3

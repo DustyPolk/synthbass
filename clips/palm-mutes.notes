@@ -1,0 +1,27 @@
+# palm-mutes: E string, frets 0 3 5 7 (E G A B) cycled: quarter notes, then eighths from 10.44 s, then quarters
+# Drafted from the recording (envelope onsets + harmonic-sum pitch); confirmed by the bassist.
+# Palm-muted attacks read 15-30 c sharp, so the cents tolerance is wider than for open notes.
+# Offsets are approximate (each muted note decays below about -50 dBFS within ~0.4 s).
+timing_tolerance 0.08
+cents_tolerance 40
+
+5.08 5.48 E1
+5.81 6.21 G1
+6.53 6.93 A1
+7.22 7.62 B1
+7.89 8.29 E1
+8.51 8.91 G1
+9.11 9.51 A1
+9.73 10.13 B1
+10.44 10.73 E1
+10.76 11.03 G1
+11.06 11.35 A1
+11.38 11.65 B1
+11.68 11.94 E1
+11.97 12.23 G1
+12.26 12.52 A1
+12.55 12.81 B1
+12.84 13.24 E1
+13.41 13.81 G1
+13.98 14.38 A1
+14.55 14.95 B1

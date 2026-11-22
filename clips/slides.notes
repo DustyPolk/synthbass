@@ -1,0 +1,12 @@
+# slides: picked once and slid, on the E string (the how-to said A string; same frets)
+# Drafted from a 50 ms harmonic-sum pitch track; confirmed by the bassist.
+#   1: fret 2 -> 7, slide about 5.25-5.55 s, arrival held to 8.25 s
+#   2: fret 7 -> 2, slide about 10.50-10.80 s, arrival held to 12.78 s
+#   3: fret 5 -> 12, slide about 14.40-14.70 s, arrival held to 17.28 s
+# Held notes read about 20 c flat (B1, E2); the attacks have a weak fundamental.
+timing_tolerance 0.1
+cents_tolerance 25
+
+5.20 8.25 F#1->B1
+10.30 12.78 B1->F#1
+14.20 17.28 A1->E2
