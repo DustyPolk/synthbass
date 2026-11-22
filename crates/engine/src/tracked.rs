@@ -37,7 +37,7 @@ impl Deref for Voices {
 }
 
 pub struct TrackedLayer {
-    voice: Voice,
+    voices: [Voice; MAX_VOICES],
     string: StringLevel,
     gate: f32,
     waveshape: Smoothed,
@@ -79,7 +79,7 @@ struct Sound {
 impl TrackedLayer {
     pub fn new(sample_rate: f32) -> Self {
         TrackedLayer {
-            voice: Voice::new(sample_rate),
+            voices: std::array::from_fn(|i| Voice::new(sample_rate, i as u32)),
             string: StringLevel::new(sample_rate),
             gate: NOISE_GATE_DEFAULT,
             waveshape: Smoothed::new(Param::TrackedOsc1Waveshape.default_value(), sample_rate),
@@ -152,7 +152,44 @@ impl TrackedLayer {
         // A muted string ends its voices at once, without waiting for the
         // tracker's analysis to ring down.
         let notes = if string_level < self.gate { &[] } else { notes };
-        self.voice.update(notes, string_level);
+        let mut playing: [Option<&DetectedNote>; MAX_VOICES] = [None; MAX_VOICES];
+        for (voice, playing) in self.voices.iter().zip(&mut playing) {
+            *playing = voice
+                .note_id
+                .and_then(|id| notes.iter().find(|note| note.id == id));
+        }
+        // Notes come loudest first, so when all voices are busy a new note
+        // takes the voice of the quietest note, if it is louder.
+        for note in notes {
+            if playing.iter().flatten().any(|p| p.id == note.id) {
+                continue;
+            }
+            let Some(slot) = self.free_voice(&playing).or_else(|| {
+                quietest(&playing).filter(|&i| {
+                    playing[i].is_some_and(|quiet| note.level > STEAL_MARGIN * quiet.level)
+                })
+            }) else {
+                continue;
+            };
+            playing[slot] = Some(note);
+        }
+        for (voice, note) in self.voices.iter_mut().zip(playing) {
+            voice.update(note, string_level);
+        }
+    }
+
+    /// A voice with no note: a silent one if any, else the quietest one
+    /// still fading out.
+    fn free_voice(&self, playing: &[Option<&DetectedNote>; MAX_VOICES]) -> Option<usize> {
+        (0..MAX_VOICES)
+            .filter(|&i| playing[i].is_none())
+            .min_by(|&a, &b| {
+                let loudness = |i: usize| {
+                    let voice = &self.voices[i];
+                    if voice.sounding { voice.loudness } else { -1.0 }
+                };
+                loudness(a).total_cmp(&loudness(b))
+            })
     }
 
     pub fn process(&mut self) -> f32 {
@@ -171,17 +208,31 @@ impl TrackedLayer {
                 .exp(),
             pick_sensitivity: self.pick_sensitivity.next(),
         };
-        self.voice.process(&sound) * self.level.next()
+        let mix: f32 = self.voices.iter_mut().map(|v| v.process(&sound)).sum();
+        mix * self.level.next()
     }
 
     pub fn voices(&self) -> Voices {
         let mut voices = Voices::default();
-        if let Some(reading) = self.voice.reading() {
-            voices.voices[0] = reading;
-            voices.len = 1;
+        for reading in self.voices.iter().filter_map(Voice::reading) {
+            voices.voices[voices.len] = reading;
+            voices.len += 1;
         }
         voices
     }
+}
+
+/// A new note must be this much louder than the quietest voice's note to
+/// take its voice, so two notes of about equal level don't trade a voice
+/// back and forth.
+const STEAL_MARGIN: f32 = 1.25;
+
+/// The voice playing the quietest note.
+fn quietest(playing: &[Option<&DetectedNote>; MAX_VOICES]) -> Option<usize> {
+    (0..MAX_VOICES)
+        .filter_map(|i| playing[i].map(|note| (i, note.level)))
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(i, _)| i)
 }
 
 /// Octaves the filter envelope opens the filter at full amount, on the
@@ -237,7 +288,8 @@ struct Voice {
 }
 
 impl Voice {
-    fn new(sample_rate: f32) -> Self {
+    /// `index` makes each voice's oscillator 2 phases differ.
+    fn new(sample_rate: f32, index: u32) -> Self {
         let coefficient = |seconds: f32| (-1.0 / (seconds * sample_rate)).exp();
         Voice {
             note_id: None,
@@ -254,19 +306,14 @@ impl Voice {
             sub: Oscillator::default(),
             filter: LadderFilter::new(sample_rate),
             envelope: FilterEnvelope::new(sample_rate),
-            seed: 0x9e37_79b9,
+            seed: 0x9e37_79b9_u32.wrapping_add(index.wrapping_mul(0x85eb_ca6b)),
             sample_rate,
         }
     }
 
-    /// Follows its note while the note sounds; otherwise takes the loudest
-    /// note heard, or fades out when there is none. Loudness never exceeds
+    /// Plays `note`, or fades out when there is none. Loudness never exceeds
     /// `string_level`, the dry signal's recent peak.
-    fn update(&mut self, notes: &[DetectedNote], string_level: f32) {
-        let note = self
-            .note_id
-            .and_then(|id| notes.iter().find(|note| note.id == id))
-            .or(notes.first());
+    fn update(&mut self, note: Option<&DetectedNote>, string_level: f32) {
         match note {
             Some(note) => {
                 if !self.sounding {
@@ -503,14 +550,14 @@ mod tests {
     #[test]
     fn voices_starting_at_different_times_sweep_independently() {
         let sound = plucky();
-        let (mut first, mut second) = (Voice::new(SAMPLE_RATE), Voice::new(SAMPLE_RATE));
+        let (mut first, mut second) = (Voice::new(SAMPLE_RATE, 0), Voice::new(SAMPLE_RATE, 1));
         let late = (0.2 * SAMPLE_RATE) as usize;
         let window = (0.04 * SAMPLE_RATE) as usize;
         let mut outputs = (Vec::new(), Vec::new());
-        first.update(&[note(1, 33.0)], 1.0);
+        first.update(Some(&note(1, 33.0)), 1.0);
         for n in 0..late + window {
             if n == late {
-                second.update(&[note(2, 33.0)], 1.0);
+                second.update(Some(&note(2, 33.0)), 1.0);
             }
             outputs.0.push(first.process(&sound));
             outputs.1.push(second.process(&sound));

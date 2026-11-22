@@ -215,3 +215,148 @@ fn note_hz(name: &str) -> Result<f32, String> {
     let midi = 12 * (octave + 1) + semitone + accidental;
     Ok(440.0 * 2f32.powf((midi - 69) as f32 / 12.0))
 }
+
+/// How well a clip run's voices match the clip's expected notes.
+#[derive(Debug)]
+pub struct VoiceScore {
+    pub events: Vec<EventScore>,
+    /// Seconds with a voice sounding while no note is expected.
+    pub ghost_seconds: f32,
+}
+
+/// One expected event, judged inside its window (onset and offset each
+/// pulled in by the timing tolerance).
+#[derive(Debug)]
+pub struct EventScore {
+    pub onset: f32,
+    /// Fraction of the window each expected note has a voice within the
+    /// cents tolerance, in the order the event lists them.
+    pub coverage: Vec<f32>,
+    /// Fraction of the window with a voice that matches no expected note.
+    pub extra: f32,
+    /// Seconds after the offset (plus tolerance) that a voice at one of the
+    /// event's notes still sounds, unless the next event plays it again.
+    pub overhang: f32,
+}
+
+impl EventScore {
+    pub fn min_coverage(&self) -> f32 {
+        self.coverage.iter().copied().fold(1.0, f32::min)
+    }
+}
+
+impl std::fmt::Display for VoiceScore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        for e in &self.events {
+            let coverage: Vec<String> = e.coverage.iter().map(|c| format!("{c:.2}")).collect();
+            writeln!(
+                f,
+                "  {:6.2}s cover [{}] extra {:.2} overhang {:.2}s",
+                e.onset,
+                coverage.join(" "),
+                e.extra,
+                e.overhang
+            )?;
+        }
+        write!(f, "  ghost {:.2}s", self.ghost_seconds)
+    }
+}
+
+fn hz_to_midi(hz: f32) -> f32 {
+    69.0 + 12.0 * (hz / 440.0).log2()
+}
+
+/// Scores the voices in `run` against `clip`'s steady notes (slides are
+/// ticket 08's and are skipped).
+pub fn score_voices(clip: &Clip, run: &ClipRun) -> VoiceScore {
+    let expected = &clip.expected;
+    let tol = expected.timing_tolerance;
+    let near = |pitch: f32, target: f32| (pitch - target).abs() * 100.0 <= expected.cents_tolerance;
+    let steady = |event: &Event| -> Vec<f32> {
+        event
+            .notes
+            .iter()
+            .filter_map(|p| match p {
+                Pitch::Steady(hz) => Some(hz_to_midi(*hz)),
+                Pitch::Slide { .. } => None,
+            })
+            .collect()
+    };
+    let step = |i: usize| {
+        let start = if i == 0 { 0.0 } else { run.readouts[i - 1].0 };
+        run.readouts[i].0 - start
+    };
+
+    let mut events = Vec::new();
+    for (index, event) in expected.events.iter().enumerate() {
+        let notes = steady(event);
+        if notes.is_empty() {
+            continue;
+        }
+        let (from, to) = (event.onset + tol, event.offset - tol);
+        let mut covered = vec![0.0; notes.len()];
+        let mut extra = 0.0;
+        let mut total = 0.0;
+        for (i, (t, readout)) in run.readouts.iter().enumerate() {
+            if *t < from || *t > to {
+                continue;
+            }
+            let dt = step(i);
+            total += dt;
+            for (c, &note) in covered.iter_mut().zip(&notes) {
+                if readout.voices.iter().any(|v| near(v.pitch, note)) {
+                    *c += dt;
+                }
+            }
+            if readout
+                .voices
+                .iter()
+                .any(|v| !notes.iter().any(|&n| near(v.pitch, n)))
+            {
+                extra += dt;
+            }
+        }
+        let total = f32::max(total, f32::EPSILON);
+        // Notes the next event plays again may keep sounding.
+        let next = expected.events.get(index + 1);
+        let carried: Vec<f32> = next.map(steady).unwrap_or_default();
+        let ending: Vec<f32> = notes
+            .iter()
+            .copied()
+            .filter(|&n| !carried.iter().any(|&c| near(c, n)))
+            .collect();
+        let end = event.offset + tol;
+        let limit = next.map_or(f32::MAX, |n| n.onset - tol).max(end);
+        let last_sounding = run
+            .readouts
+            .iter()
+            .filter(|(t, _)| *t > end && *t <= limit)
+            .filter(|(_, r)| r.voices.iter().any(|v| ending.iter().any(|&n| near(v.pitch, n))))
+            .map(|(t, _)| *t)
+            .fold(end, f32::max);
+        events.push(EventScore {
+            onset: event.onset,
+            coverage: covered.iter().map(|c| c / total).collect(),
+            extra: extra / total,
+            overhang: last_sounding - end,
+        });
+    }
+
+    let expected_at = |t: f32| {
+        expected
+            .events
+            .iter()
+            .any(|e| t >= e.onset - tol && t <= e.offset + tol)
+    };
+    let ghost_seconds = (0..run.readouts.len())
+        .filter(|&i| {
+            let (t, readout) = &run.readouts[i];
+            !expected_at(*t) && !readout.voices.is_empty()
+        })
+        .map(step)
+        .sum();
+    VoiceScore {
+        events,
+        ghost_seconds,
+    }
+}
