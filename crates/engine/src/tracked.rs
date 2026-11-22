@@ -166,8 +166,8 @@ impl Voice {
             return 0.0;
         }
         self.pitch = self.target_pitch + (self.pitch - self.target_pitch) * self.pitch_coefficient;
-        self.loudness =
-            self.target_loudness + (self.loudness - self.target_loudness) * self.loudness_coefficient;
+        self.loudness = self.target_loudness
+            + (self.loudness - self.target_loudness) * self.loudness_coefficient;
         if self.note_id.is_none() && self.loudness < SILENT {
             self.sounding = false;
             self.loudness = 0.0;

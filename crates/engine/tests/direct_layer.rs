@@ -163,3 +163,35 @@ fn mid_stream_direct_control_changes_do_not_click() {
         );
     }
 }
+
+/// Deterministic white noise at `rms` (uniform distribution).
+fn noise(rms: f32, seconds: f32) -> Vec<f32> {
+    let mut seed = 0x9e37_79b9_u32;
+    let amplitude = rms * 3f32.sqrt();
+    (0..(seconds * SAMPLE_RATE) as usize)
+        .map(|_| {
+            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+            amplitude * ((seed >> 8) as f32 / (1 << 23) as f32 - 1.0)
+        })
+        .collect()
+}
+
+#[test]
+fn the_idle_noise_floor_at_max_drive_is_silenced_below_the_noise_gate() {
+    // The Scarlett's idle floor is about −104 dBFS; +36 dB of drive would
+    // make it audible hiss.
+    let floor = noise(10f32.powf(-104.0 / 20.0), 1.5);
+    let mut engine = direct_only();
+    engine.set_param(Param::DirectDrive, 1.0);
+    engine.set_noise_gate(0.002);
+    let out = render(&mut engine, &floor, &[128]).left;
+    assert_eq!(peak(&out[(0.5 * SAMPLE_RATE) as usize..]), 0.0);
+}
+
+#[test]
+fn notes_above_the_noise_gate_still_play_through_the_direct_layer() {
+    let mut engine = direct_only();
+    engine.set_noise_gate(0.05);
+    let out = render(&mut engine, &sine(110.0, 0.1, 0.5), &[128]).left;
+    assert!(peak(&out[12_000..]) > 0.05, "{}", peak(&out[12_000..]));
+}

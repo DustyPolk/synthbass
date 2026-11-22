@@ -20,6 +20,14 @@ fn silence(seconds: f32) -> Vec<f32> {
     vec![0.0; (seconds * SAMPLE_RATE) as usize]
 }
 
+/// Puts silence before `signal`, long enough for the levels set on a fresh
+/// engine to finish gliding (the dry signal level to reach exactly zero).
+fn after_settling(signal: Vec<f32>) -> Vec<f32> {
+    let mut dry = silence(0.3);
+    dry.extend(signal);
+    dry
+}
+
 #[test]
 fn a_note_produces_one_voice_at_its_pitch() {
     let mut engine = tracked_only();
@@ -49,7 +57,10 @@ fn the_voice_sounds_at_the_detected_pitch_as_saw_and_square() {
         let out = render(&mut engine, &bass_tone(hz(A1), 0.4, 1.0, 0.6), &[128]).left;
         let settled = &out[(0.2 * SAMPLE_RATE) as usize..];
         let cents = 1200.0 * (frequency(settled) / hz(A1)).log2();
-        assert!(cents.abs() < 5.0, "waveshape {waveshape}: {cents} cents off");
+        assert!(
+            cents.abs() < 5.0,
+            "waveshape {waveshape}: {cents} cents off"
+        );
     }
 }
 
@@ -108,7 +119,6 @@ fn voice_output_scales_with_its_loudness() {
     assert!((ratio - 0.198).abs() < 0.03, "{ratio}");
 }
 
-
 #[test]
 fn muting_the_string_ends_the_voice_and_its_sound() {
     let mut engine = tracked_only();
@@ -131,3 +141,64 @@ fn a_note_decaying_below_the_noise_gate_ends_the_voice() {
     assert_eq!(peak(&out[(3.6 * SAMPLE_RATE) as usize..]), 0.0);
 }
 
+#[test]
+fn tracked_layer_level_at_zero_removes_its_contribution() {
+    let mut engine = tracked_only();
+    engine.set_param(Param::TrackedLevel, 0.0);
+    let dry = after_settling(bass_tone(hz(A1), 0.4, 1.0, 0.5));
+    let out = render(&mut engine, &dry, &[128]).left;
+    assert_eq!(engine.readout().voices.len(), 1);
+    assert_eq!(peak(&out), 0.0);
+}
+
+#[test]
+fn the_voice_fades_in_without_a_click() {
+    for waveshape in [0.0, 1.0] {
+        let mut engine = tracked_only();
+        engine.set_param(Param::TrackedOsc1Waveshape, waveshape);
+        let dry = after_settling(bass_tone(hz(A1), 0.4, 1.0, 0.5));
+        let out = render(&mut engine, &dry, &[128]).left;
+        let start = out
+            .iter()
+            .position(|&s| s != 0.0)
+            .expect("the voice sounds");
+        // A click is a step out of silence: the first samples must be a
+        // small fraction of the settled level, and the first millisecond
+        // still well below it.
+        let first_samples = peak(&out[start..start + 5]);
+        let first_ms = peak(&out[start..start + 48]);
+        let settled = peak(&out[start + 4_800..start + 9_600]);
+        assert!(
+            first_samples < 0.01 * settled && first_ms < 0.3 * settled,
+            "waveshape {waveshape}: {first_samples}, {first_ms} vs {settled}"
+        );
+    }
+}
+
+#[test]
+fn dry_signal_direct_layer_and_tracked_layer_mix_by_their_levels() {
+    let dry = after_settling(bass_tone(hz(A1), 0.4, 1.0, 0.8));
+    let render_with = |dry_level: f32, direct: f32, tracked: f32| {
+        let mut engine = engine();
+        // Keeps the sum under the limiter's ceiling, so mixing is linear.
+        engine.set_param(Param::OutputLevel, 0.25);
+        engine.set_param(Param::DryLevel, dry_level);
+        engine.set_param(Param::DirectLevel, direct);
+        engine.set_param(Param::TrackedLevel, tracked);
+        render(&mut engine, &dry, &[128]).left
+    };
+    let all = render_with(0.8, 0.6, 0.7);
+    let parts = [
+        render_with(0.8, 0.0, 0.0),
+        render_with(0.0, 0.6, 0.0),
+        render_with(0.0, 0.0, 0.7),
+    ];
+    for part in &parts {
+        assert!(peak(part) > 0.02, "every layer contributes");
+    }
+    let worst = (0..all.len())
+        .map(|n| (all[n] - parts.iter().map(|p| p[n]).sum::<f32>()).abs())
+        .fold(0.0, f32::max);
+    assert!(worst < 1e-5, "{worst}");
+    assert!(peak(&all) < synthbass_engine::LIMITER_CEILING);
+}

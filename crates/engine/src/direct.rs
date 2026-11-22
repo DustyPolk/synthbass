@@ -1,10 +1,11 @@
 //! The direct layer: drive → ladder filter (cutoff opened by playing
-//! intensity) → level. Shaped from the dry signal sample by sample, so it
+//! intensity) → noise gate → level. Shaped from the dry signal sample by sample, so it
 //! adds no latency and handles chords like any other signal.
 
 use crate::ladder::LadderFilter;
 use crate::param::Param;
 use crate::smoothed::Smoothed;
+use crate::tracker::NOISE_GATE_DEFAULT;
 
 /// Pre-gain into the waveshaper at full drive (+36 dB).
 const MAX_DRIVE_GAIN: f32 = 64.0;
@@ -24,6 +25,7 @@ pub struct DirectLayer {
     level: Smoothed,
     envelope: Envelope,
     filter: LadderFilter,
+    gate: Gate,
 }
 
 impl DirectLayer {
@@ -39,6 +41,7 @@ impl DirectLayer {
             level: Smoothed::new(Param::DirectLevel.default_value(), sample_rate),
             envelope: Envelope::new(sample_rate),
             filter: LadderFilter::new(sample_rate),
+            gate: Gate::new(sample_rate),
         }
     }
 
@@ -55,6 +58,10 @@ impl DirectLayer {
         }
     }
 
+    pub fn set_gate(&mut self, threshold: f32) {
+        self.gate.threshold = threshold;
+    }
+
     pub fn process(&mut self, dry: f32) -> f32 {
         let envelope = self.envelope.process(dry);
         let octaves = ENVELOPE_OCTAVES * self.envelope_sensitivity.next() * envelope;
@@ -62,7 +69,8 @@ impl DirectLayer {
             .set_cutoff((self.log2_cutoff.next() + octaves).exp2());
         self.filter.set_resonance(self.resonance.next());
         let driven = (dry * self.drive_gain.next()).tanh();
-        self.filter.process(driven) * self.level.next()
+        let gain = self.gate.process(envelope);
+        self.filter.process(driven) * gain * self.level.next()
     }
 }
 
@@ -99,5 +107,52 @@ impl Envelope {
             }
         }
         self.level
+    }
+}
+
+const GATE_ATTACK_SECONDS: f32 = 0.001;
+const GATE_RELEASE_SECONDS: f32 = 0.08;
+/// The gate closes this far below its threshold (−3 dB), so a note hovering
+/// at the threshold does not chatter.
+const GATE_HYSTERESIS: f32 = std::f32::consts::FRAC_1_SQRT_2;
+
+/// Silences the layer while the dry signal is below the global noise gate:
+/// full drive would otherwise turn the interface's idle noise floor and
+/// pickup hum into audible hiss.
+struct Gate {
+    threshold: f32,
+    open: bool,
+    gain: f32,
+    attack: f32,
+    release: f32,
+}
+
+impl Gate {
+    fn new(sample_rate: f32) -> Self {
+        Gate {
+            threshold: NOISE_GATE_DEFAULT,
+            open: false,
+            gain: 0.0,
+            attack: (-1.0 / (GATE_ATTACK_SECONDS * sample_rate)).exp(),
+            release: (-1.0 / (GATE_RELEASE_SECONDS * sample_rate)).exp(),
+        }
+    }
+
+    /// Takes the dry signal's envelope; returns the gain to apply.
+    fn process(&mut self, envelope: f32) -> f32 {
+        if envelope >= self.threshold {
+            self.open = true;
+        } else if envelope < self.threshold * GATE_HYSTERESIS {
+            self.open = false;
+        }
+        if self.open {
+            self.gain = 1.0 + (self.gain - 1.0) * self.attack;
+        } else {
+            self.gain *= self.release;
+            if self.gain < 1e-6 {
+                self.gain = 0.0;
+            }
+        }
+        self.gain
     }
 }

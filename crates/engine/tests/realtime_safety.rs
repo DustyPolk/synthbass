@@ -31,6 +31,7 @@ static GLOBAL: CountingAllocator = CountingAllocator;
 fn processing_parameter_changes_and_readout_allocate_nothing() {
     let mut engine = engine();
     engine.set_param(Param::DirectLevel, 1.0);
+    engine.set_param(Param::TrackedLevel, 1.0);
     // A low and a high note together keep the tracker busy with notes.
     let dry: Vec<f32> = sine(41.2, 0.4, 0.5)
         .iter()
@@ -45,11 +46,12 @@ fn processing_parameter_changes_and_readout_allocate_nothing() {
     for (i, block) in dry.chunks(MAX_BLOCK).enumerate() {
         engine.set_param(Param::OutputLevel, i as f32 * 0.1);
         engine.set_param(Param::DirectCutoff, 100.0 * (i + 1) as f32);
+        engine.set_param(Param::TrackedOsc1Waveshape, (i % 2) as f32);
         engine.set_noise_gate(0.001 * i as f32);
         let n = block.len();
         engine.process(block, &mut left[..n], &mut right[..n]);
         let readout = std::hint::black_box(engine.readout());
-        notes_seen |= !readout.notes.is_empty();
+        notes_seen |= !readout.notes.is_empty() && !readout.voices.is_empty();
     }
     let after = ALLOCATIONS.load(Ordering::Relaxed);
 

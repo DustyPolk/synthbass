@@ -78,11 +78,12 @@ impl Engine {
     }
 
     /// Sets the global noise gate threshold (linear amplitude): quieter notes
-    /// are not detected. Kept apart from sound parameters so switching
+    /// are not detected, and the direct layer is silent below it. Kept apart from sound parameters so switching
     /// patches never changes how the app copes with room noise.
     pub fn set_noise_gate(&mut self, threshold: f32) {
         self.tracker.set_gate(threshold);
         self.tracked.set_gate(threshold);
+        self.direct.set_gate(threshold);
     }
 
     /// Processes one block of mono dry signal into the two output blocks.
@@ -105,7 +106,8 @@ impl Engine {
             self.tracked.update(&self.tracker.notes(), dry);
             for ((&d, l), r) in dry.iter().zip(left.iter_mut()).zip(right.iter_mut()) {
                 self.input_meter.process(d);
-                let mix = d * self.dry_level.next() + self.direct.process(d) + self.tracked.process();
+                let mix =
+                    d * self.dry_level.next() + self.direct.process(d) + self.tracked.process();
                 let out = self.limiter.process(mix * self.output_level.next());
                 *l = out;
                 *r = out;

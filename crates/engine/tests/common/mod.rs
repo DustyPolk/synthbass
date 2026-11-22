@@ -87,4 +87,3 @@ pub fn bass_tone(freq: f32, amplitude: f32, fundamental: f32, seconds: f32) -> V
     let scale = amplitude / peak(&raw[..first_period.min(raw.len())]);
     raw.into_iter().map(|s| s * scale).collect()
 }
-
