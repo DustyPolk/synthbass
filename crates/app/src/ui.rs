@@ -1,4 +1,4 @@
-//! The window: level knobs, input meter, and connection status.
+//! The window: level knobs, input meter, and connection section.
 
 use std::time::Duration;
 
@@ -6,7 +6,8 @@ use eframe::egui;
 use rtrb::{Consumer, Producer};
 use synthbass_engine::{Param, Readout};
 
-use crate::audio::ConnectionStatus;
+use crate::connection::Connection;
+use crate::ports_panel;
 
 /// Meter floor; anything quieter shows as an empty bar.
 const METER_FLOOR_DB: f32 = -60.0;
@@ -15,7 +16,7 @@ pub struct SynthbassApp {
     params: Producer<(Param, f32)>,
     readouts: Consumer<Readout>,
     readout: Readout,
-    status: ConnectionStatus,
+    connection: Connection,
     dry_level: f32,
     output_level: f32,
 }
@@ -24,13 +25,13 @@ impl SynthbassApp {
     pub fn new(
         params: Producer<(Param, f32)>,
         readouts: Consumer<Readout>,
-        status: ConnectionStatus,
+        connection: Connection,
     ) -> Self {
         SynthbassApp {
             params,
             readouts,
             readout: Readout::default(),
-            status,
+            connection,
             dry_level: Param::DryLevel.default_value(),
             output_level: Param::OutputLevel.default_value(),
         }
@@ -73,12 +74,7 @@ impl eframe::App for SynthbassApp {
             self.level_knob(ui, Param::OutputLevel, "Output level");
             ui.add_space(8.0);
 
-            let color = if self.status.ok {
-                egui::Color32::LIGHT_GREEN
-            } else {
-                egui::Color32::LIGHT_RED
-            };
-            ui.colored_label(color, &self.status.message);
+            ports_panel::show(ui, &self.connection);
         });
 
         // Keep the meter moving without input events.
