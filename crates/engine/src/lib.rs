@@ -6,6 +6,7 @@
 mod direct;
 mod ladder;
 mod limiter;
+mod noise_gate;
 mod param;
 mod patch;
 mod readout;
@@ -16,6 +17,7 @@ mod tracker;
 use direct::DirectLayer;
 pub use limiter::LIMITER_CEILING;
 use limiter::Limiter;
+pub use noise_gate::NoiseGate;
 pub use param::{Format, LEVEL_FLOOR_DB, Octave, Param, ParamInfo, Section, Waveshape, gain_to_db};
 pub use patch::{PATCH_VERSION, Patch};
 use readout::PeakMeter;
@@ -24,9 +26,7 @@ use smoothed::Smoothed;
 use tracked::TrackedLayer;
 pub use tracked::{MAX_VOICES, VoiceReading, Voices};
 use tracker::Tracker;
-pub use tracker::{
-    DetectedNote, DetectedNotes, MAX_DETECTED_NOTES, NOISE_GATE_DEFAULT, NOISE_GATE_RANGE,
-};
+pub use tracker::{DetectedNote, DetectedNotes, MAX_DETECTED_NOTES};
 
 /// Signal chain: dry signal → (dry signal level + direct layer + tracked
 /// layer) → output level → hard limiter → outputs 1/2 (dual mono).
@@ -101,16 +101,11 @@ impl Engine {
         }
     }
 
-    /// Sets the global noise gate threshold (linear amplitude), clamped to
-    /// `NOISE_GATE_RANGE`: quieter notes are not detected, and the direct
-    /// layer is silent below it. A non-finite threshold is ignored. Kept apart
-    /// from sound parameters so switching patches never changes how the app
-    /// copes with room noise.
-    pub fn set_noise_gate(&mut self, threshold: f32) {
-        if !threshold.is_finite() {
-            return;
-        }
-        let threshold = threshold.clamp(*NOISE_GATE_RANGE.start(), *NOISE_GATE_RANGE.end());
+    /// Sets the global noise gate: quieter notes are not detected, and the
+    /// direct layer is silent below it. Kept apart from sound parameters so
+    /// switching patches never changes how the app copes with room noise.
+    pub fn set_noise_gate(&mut self, gate: NoiseGate) {
+        let threshold = gate.threshold();
         self.tracker.set_gate(threshold);
         self.tracked.set_gate(threshold);
         self.direct.set_gate(threshold);

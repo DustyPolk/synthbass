@@ -27,7 +27,7 @@ fn main() -> eframe::Result {
     let (readout_tx, readout_rx) = RingBuffer::new(64);
 
     let (settings, settings_warning) = settings::Store::open(settings::default_path());
-    let noise_gate = audio::NoiseGate::new(settings.get().noise_gate);
+    let noise_gate = audio::SharedNoiseGate::new(settings.get().noise_gate);
     let sound = audio::SoundParams::new();
     let library = patches::PatchLibrary::open(patches::default_dir());
 

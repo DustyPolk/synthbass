@@ -4,9 +4,10 @@
 use std::ops::Deref;
 
 use crate::ladder::LadderFilter;
+use crate::noise_gate::NoiseGate;
 use crate::param::{Octave, Param, Waveshape};
 use crate::smoothed::Smoothed;
-use crate::tracker::{DetectedNote, NOISE_GATE_DEFAULT};
+use crate::tracker::DetectedNote;
 
 /// The most voices that sound at once.
 pub const MAX_VOICES: usize = 4;
@@ -107,7 +108,7 @@ impl TrackedLayer {
             samples_since_ended: usize::MAX,
             glide_memory_samples: (GLIDE_MEMORY_SECONDS * sample_rate) as usize,
             string: StringLevel::new(sample_rate),
-            gate: NOISE_GATE_DEFAULT,
+            gate: NoiseGate::default().threshold(),
             waveshape: Smoothed::new(Param::TrackedOsc1Waveshape.default_value(), sample_rate),
             osc2_waveshape: Smoothed::new(Param::TrackedOsc2Waveshape.default_value(), sample_rate),
             osc2_tuning: Osc2Tuning::new(sample_rate),

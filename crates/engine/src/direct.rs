@@ -3,9 +3,9 @@
 //! adds no latency and handles chords like any other signal.
 
 use crate::ladder::LadderFilter;
+use crate::noise_gate::NoiseGate;
 use crate::param::Param;
 use crate::smoothed::Smoothed;
-use crate::tracker::NOISE_GATE_DEFAULT;
 
 /// Pre-gain into the waveshaper at full drive (+36 dB).
 const MAX_DRIVE_GAIN: f32 = 64.0;
@@ -130,7 +130,7 @@ struct Gate {
 impl Gate {
     fn new(sample_rate: f32) -> Self {
         Gate {
-            threshold: NOISE_GATE_DEFAULT,
+            threshold: NoiseGate::default().threshold(),
             open: false,
             gain: 0.0,
             attack: (-1.0 / (GATE_ATTACK_SECONDS * sample_rate)).exp(),

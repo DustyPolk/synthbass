@@ -53,11 +53,6 @@ use sieve::{Context, RawNote, Sieve};
 
 use crate::readout::{PeakMeter, TunerReading};
 
-/// Default global noise gate threshold (linear, ≈ −54 dBFS).
-pub const NOISE_GATE_DEFAULT: f32 = 0.002;
-/// Noise gate thresholds the engine accepts (linear, −80 to −20 dBFS).
-pub const NOISE_GATE_RANGE: std::ops::RangeInclusive<f32> = 0.0001..=0.1;
-
 /// Fundamentals the tracker considers, in Hz: just below low E to just
 /// above the top of the G string.
 const F0_RANGE: (f32, f32) = (38.0, 420.0);
@@ -155,7 +150,7 @@ impl Tracker {
             bank: Bank::new(rate),
             history: History::new(),
             sieve: Sieve::new(),
-            gate: NOISE_GATE_DEFAULT,
+            gate: crate::NoiseGate::default().threshold(),
             analysis_phase: 0,
             pick_meter: PeakMeter::new(sample_rate),
             tracked: [None; MAX_DETECTED_NOTES],

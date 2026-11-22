@@ -3,9 +3,9 @@
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
 
-use synthbass_engine::{NOISE_GATE_DEFAULT, NOISE_GATE_RANGE};
+use synthbass_engine::NoiseGate;
 
 use crate::ports::Routing;
 
@@ -17,9 +17,10 @@ pub struct Settings {
     pub ports: Routing,
     /// The patch loaded when the app last ran; `None` on a first launch.
     pub last_patch: Option<String>,
-    /// The global noise gate threshold (linear amplitude). Not part of any
-    /// patch: it belongs to the room, not the sound.
-    pub noise_gate: f32,
+    /// The global noise gate. Not part of any patch: it belongs to the room,
+    /// not the sound.
+    #[serde(with = "noise_gate_field")]
+    pub noise_gate: NoiseGate,
 }
 
 impl Default for Settings {
@@ -27,7 +28,7 @@ impl Default for Settings {
         Settings {
             ports: Routing::default(),
             last_patch: None,
-            noise_gate: NOISE_GATE_DEFAULT,
+            noise_gate: NoiseGate::default(),
         }
     }
 }
@@ -92,25 +93,13 @@ impl Settings {
         };
         match toml::from_str::<Settings>(&text) {
             Ok(settings) => Loaded {
-                settings: settings.validated(),
+                settings,
                 warning: None,
             },
             // The full error spans several lines with a source excerpt; the
             // message alone fits the window.
             Err(err) => defaults_because(path, &err.message()),
         }
-    }
-
-    /// Brings hand-edited values back into range: a noise gate outside its
-    /// range is clamped, and one that is not a number becomes the default.
-    fn validated(mut self) -> Settings {
-        self.noise_gate = if self.noise_gate.is_finite() {
-            self.noise_gate
-                .clamp(*NOISE_GATE_RANGE.start(), *NOISE_GATE_RANGE.end())
-        } else {
-            NOISE_GATE_DEFAULT
-        };
-        self
     }
 
     /// Writes the file atomically (temp file, then rename), so a crash mid-write
@@ -123,6 +112,21 @@ impl Settings {
         let temp = path.with_extension("toml.tmp");
         std::fs::write(&temp, text)?;
         std::fs::rename(&temp, path)
+    }
+}
+
+/// The noise gate is written as its threshold (linear amplitude). A
+/// hand-edited threshold outside its range loads clamped, and one that is
+/// not a number loads the default.
+mod noise_gate_field {
+    use super::*;
+
+    pub fn serialize<S: Serializer>(gate: &NoiseGate, to: S) -> Result<S::Ok, S::Error> {
+        gate.threshold().serialize(to)
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(from: D) -> Result<NoiseGate, D::Error> {
+        Ok(NoiseGate::new(f32::deserialize(from)?).unwrap_or_default())
     }
 }
 
@@ -146,6 +150,10 @@ fn defaults_because(path: &Path, err: &dyn std::fmt::Display) -> Loaded {
 mod tests {
     use super::*;
     use crate::ports::Choice;
+
+    fn gate(threshold: f32) -> NoiseGate {
+        NoiseGate::new(threshold).unwrap()
+    }
 
     fn temp_path(name: &str) -> PathBuf {
         let dir =
@@ -196,8 +204,8 @@ mod tests {
         std::fs::write(&path, "[ports]\ninput = \"X:capture_FL\"\n").unwrap();
         let loaded = Settings::load(&path).settings;
         assert_eq!(loaded.last_patch, None);
-        assert_eq!(loaded.noise_gate, NOISE_GATE_DEFAULT);
-        assert_eq!(Settings::default().noise_gate, NOISE_GATE_DEFAULT);
+        assert_eq!(loaded.noise_gate, NoiseGate::default());
+        assert_eq!(Settings::default().noise_gate, NoiseGate::default());
     }
 
     #[test]
@@ -205,14 +213,18 @@ mod tests {
         let path = temp_path("bad-gate");
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         for (written, expected) in [
-            ("5.0", *NOISE_GATE_RANGE.end()),
-            ("0.0", *NOISE_GATE_RANGE.start()),
-            ("nan", NOISE_GATE_DEFAULT),
-            ("inf", NOISE_GATE_DEFAULT),
+            ("5.0", *NoiseGate::RANGE.end()),
+            ("0.0", *NoiseGate::RANGE.start()),
+            ("nan", NoiseGate::default().threshold()),
+            ("inf", NoiseGate::default().threshold()),
         ] {
             std::fs::write(&path, format!("noise_gate = {written}\n")).unwrap();
             let loaded = Settings::load(&path).settings;
-            assert_eq!(loaded.noise_gate, expected, "noise_gate = {written}");
+            assert_eq!(
+                loaded.noise_gate.threshold(),
+                expected,
+                "noise_gate = {written}"
+            );
         }
     }
 
@@ -221,11 +233,32 @@ mod tests {
         let path = temp_path("patch-and-gate");
         let settings = Settings {
             last_patch: Some("Mine".into()),
-            noise_gate: 0.0125,
+            noise_gate: gate(0.0125),
             ..Settings::default()
         };
         settings.save(&path).unwrap();
         assert_eq!(Settings::load(&path).settings, settings);
+    }
+
+    /// A settings file as version 1 of the app wrote it.
+    const V1_FILE: &str = "last_patch = \"Squelch\"
+noise_gate = 0.0125
+
+[ports]
+input = \"X:capture_FL\"
+";
+
+    #[test]
+    fn a_v1_settings_file_loads_its_values_and_saves_back_unchanged() {
+        let path = temp_path("v1");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, V1_FILE).unwrap();
+        let loaded = Settings::load(&path);
+        assert_eq!(loaded.warning, None);
+        assert_eq!(loaded.settings.noise_gate.threshold(), 0.0125);
+        assert_eq!(loaded.settings.last_patch.as_deref(), Some("Squelch"));
+        loaded.settings.save(&path).unwrap();
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), V1_FILE);
     }
 
     #[test]
@@ -242,12 +275,12 @@ mod tests {
         other
             .update(|s| s.ports.input = Choice::Port("X:capture_FR".into()))
             .unwrap();
-        store.update(|s| s.noise_gate = 0.02).unwrap();
+        store.update(|s| s.noise_gate = gate(0.02)).unwrap();
 
         let saved = Settings::load(&path).settings;
         assert_eq!(saved.last_patch.as_deref(), Some("Squelch"));
         assert_eq!(saved.ports.input, Choice::Port("X:capture_FR".into()));
-        assert_eq!(saved.noise_gate, 0.02);
+        assert_eq!(saved.noise_gate, gate(0.02));
         assert_eq!(other.get(), saved);
     }
 

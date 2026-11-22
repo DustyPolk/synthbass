@@ -7,7 +7,7 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
 use common::*;
-use synthbass_engine::{Param, Patch};
+use synthbass_engine::{NoiseGate, Param, Patch};
 
 struct CountingAllocator;
 
@@ -68,7 +68,7 @@ fn processing_parameter_and_patch_changes_and_readout_allocate_nothing() {
         engine.set_param(Param::OutputLevel, i as f32 * 0.1);
         engine.set_param(Param::DirectCutoff, 100.0 * (i + 1) as f32);
         engine.set_param(Param::TrackedOsc1Waveshape, (i % 2) as f32);
-        engine.set_noise_gate(0.001 * i as f32);
+        engine.set_noise_gate(NoiseGate::new(0.001 * i as f32).unwrap());
         if i % 3 == 0 {
             engine.apply_patch(&patches[i / 3 % 2]);
         }

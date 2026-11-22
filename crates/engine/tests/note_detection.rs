@@ -4,6 +4,7 @@
 mod common;
 
 use common::*;
+use synthbass_engine::NoiseGate;
 
 #[test]
 fn silence_gives_no_tuner_reading_and_no_notes() {
@@ -154,7 +155,7 @@ fn anything_detected(engine: &mut synthbass_engine::Engine, signal: &[f32]) -> b
 fn nothing_below_the_noise_gate_is_detected() {
     for pitch in [LOW_E, 45.0, TOP_OF_G_STRING] {
         let mut engine = engine();
-        engine.set_noise_gate(0.05);
+        engine.set_noise_gate(NoiseGate::new(0.05).unwrap());
         assert!(
             !anything_detected(&mut engine, &bass_tone(hz(pitch), 0.03, 1.0, 0.5)),
             "{pitch} detected below the gate"
@@ -169,7 +170,7 @@ fn nothing_below_the_noise_gate_is_detected() {
 #[test]
 fn a_note_decaying_below_the_noise_gate_ends() {
     let mut engine = engine();
-    engine.set_noise_gate(0.05);
+    engine.set_noise_gate(NoiseGate::new(0.05).unwrap());
     // Decays with a 1.5 s time constant from 0.2: below 0.05 after ~2 s.
     render(&mut engine, &bass_tone(hz(33.0), 0.2, 1.0, 3.0), &[128]);
     let readout = engine.readout();
@@ -334,7 +335,7 @@ fn lower_partials_die_first(
 #[test]
 fn an_upper_harmonic_left_below_the_noise_gate_does_not_keep_its_note() {
     let mut engine = engine();
-    engine.set_noise_gate(0.05);
+    engine.set_noise_gate(NoiseGate::new(0.05).unwrap());
     // The second harmonic stays at 0.07 / 2 = 0.035: under the gate, over
     // the half of it the partial search keeps.
     let dry = lower_partials_die_first(0.3, 0.07, 0.4, 0.4);
@@ -353,7 +354,7 @@ fn an_upper_harmonic_left_below_the_noise_gate_does_not_keep_its_note() {
 #[test]
 fn an_upper_harmonic_left_above_the_noise_gate_keeps_its_note() {
     let mut engine = engine();
-    engine.set_noise_gate(0.05);
+    engine.set_noise_gate(NoiseGate::new(0.05).unwrap());
     render(
         &mut engine,
         &lower_partials_die_first(0.3, 0.2, 0.4, 0.4),
