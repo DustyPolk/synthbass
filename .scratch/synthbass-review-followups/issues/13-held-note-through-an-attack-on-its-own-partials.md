@@ -11,3 +11,5 @@
 - [ ] `tracked_layer.rs` `a_held_note_keeps_its_voice_through_any_nearby_attack` passes and is no longer ignored (63 of 216 restart today)
 - [ ] The root cause fix is written in this ticket's `## Comments`
 - [ ] All existing tests pass, including the recorded-clip suites and the block-size identity test, with no new exemptions
+
+**Related, found by the follow-up review fixes:** when E2 is muted and E1 picked within about 5 ms, E2 stays reported alongside E1 for about 30 ms (an octave-up ghost). It does not come from the sieve's `carried_through_attack` rule; likely the same octave/partial-sharing area as this ticket.
