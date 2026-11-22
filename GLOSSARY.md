@@ -30,6 +30,10 @@ _Avoid_: Preset, program, sound
 A voice's loudness tracks the loudness of its note on the bass, so dynamics, palm mutes and natural decay pass through as played.
 _Avoid_: Envelope follower (as a domain term), amp envelope
 
+**Oscillator mix**:
+The balance between a voice's two oscillators, from oscillator 1 alone to oscillator 2 alone. It starts at an even blend, so oscillator 2's waveshape, octave and detune are heard. The sub-oscillator has its own level and sits outside the mix.
+_Avoid_: Oscillator balance, crossfade, oscillator 2 level
+
 **Filter envelope**:
 A Moog-style sweep of a voice's filter that fires when its note is detected and opens wider the harder the note is picked.
 _Avoid_: ADSR, contour

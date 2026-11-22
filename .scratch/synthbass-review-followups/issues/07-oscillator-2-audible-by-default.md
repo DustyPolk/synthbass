@@ -8,9 +8,9 @@
 
 **Context budget:** finish within one fresh context, well under 150K tokens. Read `GLOSSARY.md`, `.scratch/synthbass-review-followups/spec.md` and the relevant ADRs; skip anything unrelated. Keep test and build output terse (filter to failures).
 
-- [ ] Oscillator mix defaults to an even blend
-- [ ] Test: with default settings, switching oscillator 2's octave changes the output (energy appears at the octave)
-- [ ] Test: every built-in patch that sets oscillator 2 has a mix where oscillator 2 is audible
-- [ ] Built-in patches stay within about 3 dB of each other on the chromatic-run clip; re-render them to the shared notes audition folder so the bassist can compare
-- [ ] **Oscillator mix** is in `GLOSSARY.md`
-- [ ] All existing tests pass, including the recorded-clip suites, with no new exemptions
+- [x] Oscillator mix defaults to an even blend
+- [x] Test: with default settings, switching oscillator 2's octave changes the output (energy appears at the octave)
+- [x] Test: every built-in patch that sets oscillator 2 has a mix where oscillator 2 is audible
+- [x] Built-in patches stay within about 3 dB of each other on the chromatic-run clip; re-render them to the shared notes audition folder so the bassist can compare
+- [x] **Oscillator mix** is in `GLOSSARY.md`
+- [x] All existing tests pass, including the recorded-clip suites, with no new exemptions

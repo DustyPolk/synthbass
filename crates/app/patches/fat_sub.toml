@@ -1,5 +1,5 @@
-# Deep and heavy: a square with a saw an octave down and a loud sub, filter
-# mostly closed.
+# Deep and heavy: a square blended evenly with a saw an octave down, a loud
+# sub, filter mostly closed.
 version = 1
 name = "Fat Sub"
 
@@ -15,7 +15,7 @@ osc1_waveshape = "square"
 osc2_waveshape = "saw"
 osc2_octave = -1
 osc2_detune_cents = 0.0
-osc_mix = 0.3
+osc_mix = 0.5
 sub_level = 0.8
 cutoff_hz = 180.0
 resonance = 0.15
