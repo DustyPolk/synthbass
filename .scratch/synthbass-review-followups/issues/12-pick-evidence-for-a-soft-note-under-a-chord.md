@@ -4,7 +4,7 @@
 
 **Blocked by:** none (05 is blocked by this)
 
-**Status:** needs-triage
+**Status:** wontfix
 
 **Context budget:** finish within one fresh context, well under 150K tokens. Read `GLOSSARY.md`, `.scratch/synthbass-review-followups/spec.md` (Voice stealing), follow-up 05's `## Comments`, and `notes/from-ticket-12.md` and `notes/from-followup-05.md` in the shared notes folder (ghost suppression has thin margins). Delegate bulky clip analysis to a subagent and keep recorded-clip output to per-clip pass/fail. If not converging by about 100K tokens, stop, record findings in a `## Comments` section and split the rest into a new ticket.
 
@@ -12,3 +12,8 @@
 - [ ] Test: with four notes ringing (e.g. E1 0.3, C#4 0.25, F4 0.2, G4 0.12 from `bass_tone`), a fifth note picked no louder than the quietest reads as picked
 - [ ] Test: a note that appears without a pick (an overtone, or a note that re-emerges when a louder one ends) reads as unpicked
 - [ ] All existing tests pass, including the recorded-clip suites and the block-size identity test, with no new exemptions
+
+
+## Comments
+
+**Closed as wontfix with follow-up 05** (bassist's decision): only needed for a fifth simultaneous note, which a 4-string bass doesn't produce.

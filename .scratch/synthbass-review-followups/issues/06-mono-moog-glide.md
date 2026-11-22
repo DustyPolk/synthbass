@@ -2,7 +2,7 @@
 
 **What to build:** glide works like a mono Moog's portamento. The engine remembers the pitch and end time of the most recently ended voice. A voice starting on a new note, or reassigned to one, glides from the newest still-sounding voice under the existing rule (it started at least 50 ms earlier), or else from the most recently ended voice if it ended within a short glide memory (an engine constant around 250 ms, tuned later by playing; not a knob). Glide time 0 still means no glide; glide still never applies within a note (slides, bends, vibrato); notes picked together never glide into each other.
 
-**Blocked by:** 05 (Every picked note gets a voice)
+**Blocked by:** None — 05 (Every picked note gets a voice) was closed as wontfix
 
 **Status:** ready-for-agent
 
@@ -14,6 +14,6 @@
 - [ ] Test: a reassigned voice glides from the right source, never from its own unrelated old pitch
 - [ ] Slide, vibrato and glide-zero tests still pass
 - [ ] The glossary's **Glide** entry and ticket 08's notes in `.scratch/synthbass/issues/08-slides-bends-and-glide.md` (a `## Comments` addendum) describe the new rule
-- [ ] The remaining in-crate `tracked.rs` unit tests that feed hand-made notes (glide-related; see follow-up 03's `## Comments`) are replaced by public-interface tests and deleted, so no engine test reaches into internals (ignored diagnostics in `tracker/probe.rs` excepted)
+- [ ] All five in-crate `tracked.rs` unit tests that feed hand-made notes (listed in follow-up 03's `## Comments`, including `a_new_note_takes_a_silent_voice_not_one_still_fading`) are replaced by public-interface tests and deleted, so no engine test reaches into internals (ignored diagnostics in `tracker/probe.rs` excepted)
 - [ ] Any new timer (glide memory) advances in `TrackedLayer::listen`, not `update`, so output stays identical at any block size (follow-up 04's test proves it)
 - [ ] All existing tests pass, including the recorded-clip suites, with no new exemptions

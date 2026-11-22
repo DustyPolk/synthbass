@@ -4,7 +4,7 @@
 
 **Blocked by:** 03 (Engine tests through the public interface only), 12 (Pick evidence for a soft note under a chord)
 
-**Status:** ready-for-agent
+**Status:** wontfix
 
 **Context budget:** finish within one fresh context, well under 150K tokens. Read `GLOSSARY.md`, `.scratch/synthbass-review-followups/spec.md` and the relevant ADRs. This ticket runs the recorded-clip suite; keep its output to per-clip pass/fail and delegate bulky clip analysis (traces, spectra) to a subagent. If not converging by about 100K tokens, stop, record findings in a `## Comments` section and split the rest into a new ticket.
 
@@ -23,3 +23,5 @@
 - Layer design worked out for when the tracker has the signal (`tracked.rs`): voices are claimed only at a note's onset. The layer remembers last update's notes (id plus pick count, from the ungated list, so a mute gap doesn't make every note new). A note's pick count is `repicks` plus 1 if it began with a pick. A voiceless note whose pick count rose replaces the quietest voice not assigned in the same update. Notes come loudest first, so five notes picked together still drop the quietest. A note that appears without a pick may take the quietest voice only by `STEAL_MARGIN`, and only when it appears. Otherwise a displaced louder note would take its voice back from the soft picked note on the next update. A voiceless held note never steals later, so the margin's other job (no trading between held notes) goes away. No timers, so it fits follow-up 04's 32-sample grid.
 - The quietest-of-five test (`polyphony.rs`) passes today because D#4 0.06 is never in `Readout.notes` (ticket 07's note). To make it meaningful, assert the quiet note is in `Readout.notes` but has no voice. That needs a fifth pitch the tracker hears, which the probe above didn't establish.
 - The `tracked.rs` unit tests are unchanged: all five are still there for 05/06 (none migrated or deleted).
+
+**Closed as wontfix (bassist's decision).** A 4-string bass rings at most four strings at once, so a "fifth note" in practice is a re-fretted string whose previous note is still dying, not a fifth independent note; the tracker can't detect a soft fifth under four ringing notes anyway. The voice-allocation design above stays on record for a 5+-string bass. The five in-crate `tracked.rs` unit tests listed for migration move to follow-up 06.
