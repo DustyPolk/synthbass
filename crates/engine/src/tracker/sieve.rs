@@ -20,6 +20,8 @@ const MIN_CLARITY: f32 = 0.1;
 /// noise, and needs no periodicity: in a chord a quieter note's periodicity
 /// is swamped by the louder one.
 const STEADY_PARTIALS: usize = 2;
+/// An unjudged sounding note's periodicity must still be this clear.
+const UNJUDGED_CLARITY: f32 = 0.3;
 /// Lower fundamentals a candidate could be a harmonic of: f0/2 … f0/8.
 const OWNER_HARMONICS: usize = 8;
 /// A possible owner with at least this fraction of the candidate's
@@ -270,14 +272,25 @@ impl Sieve {
             // beat; dropping it then lets its upper harmonics start a note of
             // their own (a third's D#2 leaving A#3). One settled partial is
             // enough to carry it on.
-            let carried_on = count > 0
-                && settled_partials > 0
-                && sounding
-                    .iter()
-                    .any(|&pitch| (pitch - hz_to_midi(f0)).abs() <= CONTINUES);
-            if !periodicity.judged
+            let continues_sounding = sounding
+                .iter()
+                .any(|&pitch| (pitch - hz_to_midi(f0)).abs() <= CONTINUES);
+            let carried_on = count > 0 && settled_partials > 0 && continues_sounding;
+            // A louder attack beside a sounding note leaves too little of the
+            // note's energy in the older half of any periodicity span for a
+            // judgement; its settled partials still show it carries on.
+            let carries_on_unjudged = steady
+                && continues_sounding
+                && periodicity.clarity >= UNJUDGED_CLARITY;
+            if (!periodicity.judged && !carries_on_unjudged)
                 || (periodicity.clarity < MIN_CLARITY && !steady && !carried_on)
-                || self.outranked_from_below(bank, history, f0, periodicity.clarity)
+                || self.outranked_from_below(
+                    bank,
+                    history,
+                    f0,
+                    periodicity.clarity,
+                    !carries_on_unjudged,
+                )
             {
                 continue;
             }
@@ -385,7 +398,16 @@ impl Sieve {
     /// candidate could be a harmonic of, or unexplained energy lower in the
     /// bank) must first be judged by periodicity; the candidate loses if
     /// that lower note is clearly more periodic, could own it, and is heard.
-    fn outranked_from_below(&self, bank: &Bank, history: &History, f0: f32, clarity: f32) -> bool {
+    /// A lower probe that cannot be judged outranks the candidate only when
+    /// `unjudged_outranks`.
+    fn outranked_from_below(
+        &self,
+        bank: &Bank,
+        history: &History,
+        f0: f32,
+        clarity: f32,
+        unjudged_outranks: bool,
+    ) -> bool {
         let level = bank.amplitude_at(f0);
         let owners = (2..=OWNER_HARMONICS)
             .map(|h| f0 / h as f32)
@@ -410,8 +432,9 @@ impl Sieve {
         };
         owners.chain(lower_bands).any(|probe| {
             let lower = history.periodicity(probe, bank.rate());
-            !lower.judged
-                || (lower.clarity > clarity + OWNER_MARGIN
+            (!lower.judged && unjudged_outranks)
+                || (lower.judged
+                    && lower.clarity > clarity + OWNER_MARGIN
                     && related(lower.freq)
                     && self.heard(lower.freq))
         })

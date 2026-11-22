@@ -4,7 +4,7 @@
 mod common;
 
 use common::*;
-use synthbass_engine::{Engine, Param};
+use synthbass_engine::{Engine, Param, VoiceReading};
 
 const A1: f32 = 33.0;
 
@@ -232,28 +232,56 @@ fn add_attack(dry: &mut [f32], held: f32, sharp: f32, at: f32, seconds: f32) {
     }
 }
 
+/// When the held note's voice first leaves the readout, after the voice
+/// started: the time and the voices sounding then.
+fn held_voice_lost(dry: &[f32], held: f32) -> Option<(f32, Vec<VoiceReading>)> {
+    let mut engine = engine();
+    let mut held_voice = None;
+    for (i, block) in dry.chunks(128).enumerate() {
+        render(&mut engine, block, &[128]);
+        let voices = engine.readout().voices;
+        match held_voice {
+            None => held_voice = voices.iter().find(|v| (v.pitch - held).abs() < 1.0).map(|v| v.id),
+            Some(id) if !voices.iter().any(|v| v.id == id) => {
+                return Some(((i * 128) as f32 / SAMPLE_RATE, voices.to_vec()));
+            }
+            Some(_) => {}
+        }
+    }
+    assert!(held_voice.is_some(), "the held note never got a voice");
+    None
+}
+
 #[test]
 fn a_held_note_keeps_its_voice_through_an_attack_beside_it() {
     let held = 28.0;
     let mut dry = after_settling(bass_tone(hz(held), 0.3, 1.0, 1.3));
     add_attack(&mut dry, held, 0.55, 0.8, 0.03);
     add_attack(&mut dry, held, 0.45, 1.2, 0.05);
-    let mut engine = engine();
-    let mut held_voice = None;
-    for (i, block) in dry.chunks(128).enumerate() {
-        render(&mut engine, block, &[128]);
-        let voices = engine.readout().voices;
-        let at_held = voices.iter().find(|v| (v.pitch - held).abs() < 1.0);
-        match (held_voice, at_held) {
-            (None, Some(voice)) => held_voice = Some(voice.id),
-            (None, None) => {}
-            (Some(id), _) => assert!(
-                voices.iter().any(|v| v.id == id),
-                "{:.3} s: the held note's voice {id} was replaced by {:?}",
-                (i * 128) as f32 / SAMPLE_RATE,
-                &voices[..]
-            ),
+    if let Some((time, voices)) = held_voice_lost(&dry, held) {
+        panic!("{time:.3} s: the held note's voice was replaced by {voices:?}");
+    }
+}
+
+/// Short sharp attacks a little above a held low note, at several sizes,
+/// lengths and times: none of them may restart the held note's voice.
+#[test]
+fn a_held_note_keeps_its_voice_through_any_nearby_attack() {
+    let mut lost = Vec::new();
+    let mut variants = 0;
+    for held in [28.0, 33.0] {
+        for sharp in [0.30, 0.35, 0.40, 0.45, 0.50, 0.55] {
+            for seconds in [0.03, 0.04, 0.05, 0.06, 0.07, 0.08] {
+                for at in [0.8, 0.9, 1.0] {
+                    variants += 1;
+                    let mut dry = after_settling(bass_tone(hz(held), 0.3, 1.0, 1.0));
+                    add_attack(&mut dry, held, sharp, at, seconds);
+                    if let Some((time, _)) = held_voice_lost(&dry, held) {
+                        lost.push(format!("{held}+{sharp} st, {seconds} s at {at} s: lost at {time:.3} s"));
+                    }
+                }
+            }
         }
     }
-    assert!(held_voice.is_some(), "the held note never got a voice");
+    assert!(lost.is_empty(), "{} of {variants} attacks restarted the held voice:\n{}", lost.len(), lost.join("\n"));
 }
