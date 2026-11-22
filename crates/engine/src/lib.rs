@@ -16,7 +16,7 @@ use direct::DirectLayer;
 pub use ladder::LadderFilter;
 pub use limiter::LIMITER_CEILING;
 use limiter::Limiter;
-pub use param::Param;
+pub use param::{Format, LEVEL_FLOOR_DB, Param, ParamInfo, Section, gain_to_db};
 use readout::PeakMeter;
 pub use readout::{Readout, TunerReading};
 use smoothed::Smoothed;
