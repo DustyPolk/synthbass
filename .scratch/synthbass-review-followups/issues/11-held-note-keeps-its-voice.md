@@ -4,7 +4,7 @@
 
 **Blocked by:** 06 (Mono-Moog glide) — voice-handling code churns until then
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Context budget:** finish within one fresh context, well under 150K tokens. Read `GLOSSARY.md`, `.scratch/synthbass-review-followups/spec.md`, follow-up 03's `## Comments` and `notes/from-followup-03.md` in the shared notes folder (the attack-variant search is described there). Delegate bulky signal analysis to a subagent; keep test output terse. If not converging by about 100K tokens, stop, record findings in a `## Comments` section and split the rest into a new ticket.
 
