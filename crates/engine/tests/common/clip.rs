@@ -57,6 +57,12 @@ pub struct ClipRun {
     pub readouts: Vec<(f32, Readout)>,
 }
 
+/// The block sizes every recorded-clip check runs at, each judged by the
+/// same bar: the app's usual 128 samples, and an odd size rotating with a
+/// small and a large one, so a block size can't change what the tracker
+/// hears.
+pub const BLOCK_PATTERNS: [&[usize]; 2] = [&[128], &[61, 128, 512]];
+
 /// Runs a clip through a fresh engine at the clip's sample rate, cycling
 /// through `block_sizes` for the chunk lengths.
 pub fn run_clip(clip: &Clip, block_sizes: &[usize]) -> ClipRun {

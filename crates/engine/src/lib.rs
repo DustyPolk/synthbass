@@ -38,10 +38,14 @@ pub struct Engine {
     input_meter: PeakMeter,
     tracker: Tracker,
     tracked: TrackedLayer,
+    /// Samples of dry signal until the voices next take the tracker's notes.
+    /// Counted across blocks, so voices update on the same samples whatever
+    /// the block size.
+    until_voice_update: usize,
 }
 
-/// Voices pick up what the tracker hears this often (in samples), so a note
-/// starts close to when it is detected whatever the block size.
+/// Voices pick up what the tracker has heard this often (in samples), so a
+/// note starts within this many samples of being detected.
 const VOICE_UPDATE_SAMPLES: usize = 32;
 
 impl Engine {
@@ -57,6 +61,7 @@ impl Engine {
             input_meter: PeakMeter::new(sample_rate),
             tracker: Tracker::new(sample_rate),
             tracked: TrackedLayer::new(sample_rate),
+            until_voice_update: 0,
         }
     }
 
@@ -113,13 +118,22 @@ impl Engine {
             left.len() == dry.len() && right.len() == dry.len(),
             "block length mismatch"
         );
-        let chunks = dry
-            .chunks(VOICE_UPDATE_SAMPLES)
-            .zip(left.chunks_mut(VOICE_UPDATE_SAMPLES))
-            .zip(right.chunks_mut(VOICE_UPDATE_SAMPLES));
-        for ((dry, left), right) in chunks {
+        let mut start = 0;
+        while start < dry.len() {
+            if self.until_voice_update == 0 {
+                self.tracked.update(&self.tracker.notes());
+                self.until_voice_update = VOICE_UPDATE_SAMPLES;
+            }
+            let end = dry.len().min(start + self.until_voice_update);
+            self.until_voice_update -= end - start;
+            let (dry, left, right) = (
+                &dry[start..end],
+                &mut left[start..end],
+                &mut right[start..end],
+            );
+            start = end;
             self.tracker.process(dry);
-            self.tracked.update(&self.tracker.notes(), dry);
+            self.tracked.listen(dry);
             for ((&d, l), r) in dry.iter().zip(left.iter_mut()).zip(right.iter_mut()) {
                 self.input_meter.process(d);
                 let mix =
