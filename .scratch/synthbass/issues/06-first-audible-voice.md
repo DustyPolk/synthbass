@@ -12,4 +12,5 @@
 - [ ] String following: voice loudness tracks the note's level, including decay and sudden mutes
 - [ ] Offline tests: a synthetic note produces one voice at the right pitch whose loudness follows the input envelope; muting the input ends the voice; tracked layer level 0 removes its contribution; the voice fades in without a click
 - [ ] Direct layer and dry signal still mix correctly alongside the tracked layer
+- [ ] The direct layer is also silenced below the noise gate: the idle Scarlett noise floor (about −104 dBFS) becomes audible hiss at high drive (see `notes/dsp-misc.md` / research summary). Test: noise-floor-level input at max drive with the gate set above it produces silence from the direct layer
 - [ ] Verified by playing
