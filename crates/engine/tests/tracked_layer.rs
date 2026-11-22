@@ -181,6 +181,44 @@ fn the_voice_fades_in_without_a_click() {
     }
 }
 
+/// The sample at which the tracker first reports a note, and the samples at
+/// which a voice first takes it and first sounds, one sample at a time.
+fn onset_samples(engine: &mut Engine, dry: &[f32]) -> (usize, usize, usize) {
+    let (mut reported, mut voiced, mut sounding) = (None, None, None);
+    let mut out = [0.0];
+    for (n, &d) in dry.iter().enumerate() {
+        engine.process(&[d], &mut out, &mut [0.0]);
+        let readout = engine.readout();
+        if reported.is_none() && !readout.notes.is_empty() {
+            reported = Some(n);
+        }
+        if voiced.is_none() && !readout.voices.is_empty() {
+            voiced = Some(n);
+        }
+        if sounding.is_none() && out[0] != 0.0 {
+            sounding = Some(n);
+        }
+    }
+    (
+        reported.expect("the note is reported"),
+        voiced.expect("a voice takes the note"),
+        sounding.expect("the voice sounds"),
+    )
+}
+
+#[test]
+fn a_voice_starts_on_the_sample_after_its_note_is_reported() {
+    // At 48 kHz the tracker decides every 64 samples, on the voices' 32-sample
+    // update grid, so a voice takes a note as soon as it is reported: never
+    // before (that would need samples not yet heard, and would differ by block
+    // size), and never a grid step later.
+    let mut engine = tracked_only();
+    let dry = after_settling(bass_tone(hz(A1), 0.4, 1.0, 0.2));
+    let (reported, voiced, sounding) = onset_samples(&mut engine, &dry);
+    assert_eq!(voiced, reported + 1, "reported at {reported}");
+    assert_eq!(sounding, voiced, "voice taken at {voiced}");
+}
+
 #[test]
 fn dry_signal_direct_layer_and_tracked_layer_mix_by_their_levels() {
     let dry = after_settling(bass_tone(hz(A1), 0.4, 1.0, 0.8));
