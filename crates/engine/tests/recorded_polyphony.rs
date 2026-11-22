@@ -2,11 +2,13 @@
 
 mod common;
 
-use common::clip::{VoiceScore, clip_path, load_clip, run_clip, score_voices};
+use common::clip::{
+    BLOCK_PATTERNS, VoiceScore, clip_path, load_clip, run_clip, score_tuner, score_voices,
+};
 
-fn score(name: &str) -> VoiceScore {
+fn score(name: &str, blocks: &[usize]) -> VoiceScore {
     let clip = load_clip(&clip_path(name));
-    let run = run_clip(&clip, &[128]);
+    let run = run_clip(&clip, blocks);
     score_voices(&clip, &run)
 }
 
@@ -44,19 +46,30 @@ const DOUBLE_STOPS: Bar = Bar {
 type KnownGaps<'a> = &'a [(f32, &'a str)];
 
 fn check(name: &str, bar: Bar, known: KnownGaps) {
-    let score = score(name);
     let mut failures = Vec::new();
     let exempt = |onset: f32| known.iter().any(|(k, _)| (k - onset).abs() < 0.005);
-    for e in score.events.iter().filter(|e| !exempt(e.onset)) {
-        if e.min_coverage() < bar.coverage {
-            failures.push(format!("{:.2}s coverage {:?}", e.onset, e.coverage));
+    for blocks in BLOCK_PATTERNS {
+        let score = score(name, blocks);
+        for e in score.events.iter().filter(|e| !exempt(e.onset)) {
+            if e.min_coverage() < bar.coverage {
+                failures.push(format!(
+                    "blocks {blocks:?} {:.2}s coverage {:?}",
+                    e.onset, e.coverage
+                ));
+            }
+            if e.extra > bar.extra {
+                failures.push(format!(
+                    "blocks {blocks:?} {:.2}s extra {:.2}",
+                    e.onset, e.extra
+                ));
+            }
         }
-        if e.extra > bar.extra {
-            failures.push(format!("{:.2}s extra {:.2}", e.onset, e.extra));
+        if score.lingering_seconds > bar.lingering {
+            failures.push(format!(
+                "blocks {blocks:?} lingering {:.2}s",
+                score.lingering_seconds
+            ));
         }
-    }
-    if score.lingering_seconds > bar.lingering {
-        failures.push(format!("lingering {:.2}s", score.lingering_seconds));
     }
     assert!(failures.is_empty(), "{name}: {}", failures.join("; "));
 }
@@ -69,6 +82,33 @@ fn open_strings_play_one_voice_each_at_their_pitch() {
 #[test]
 fn a_chromatic_run_plays_one_voice_per_note() {
     check("chromatic-run", SINGLE_NOTES, &[]);
+}
+
+/// The tuner names each event's note within the clip's cents tolerance for
+/// the same share of its window that a voice must cover it, and shows any
+/// other reading no longer than a voice may sound off the notes. Where no
+/// clear single note is expected (a string ringing on), it may stay blank.
+fn check_tuner(name: &str, bar: Bar) {
+    let clip = load_clip(&clip_path(name));
+    let mut failures = Vec::new();
+    for blocks in BLOCK_PATTERNS {
+        for s in score_tuner(&clip, &run_clip(&clip, blocks)) {
+            if (s.expected.is_some() && s.on_note < bar.coverage) || s.wrong > bar.extra {
+                failures.push(format!("blocks {blocks:?}{s}"));
+            }
+        }
+    }
+    assert!(failures.is_empty(), "{name}:\n{}", failures.join("\n"));
+}
+
+#[test]
+fn the_tuner_reads_each_open_string() {
+    check_tuner("open-strings", SINGLE_NOTES);
+}
+
+#[test]
+fn the_tuner_reads_each_note_of_a_chromatic_run() {
+    check_tuner("chromatic-run", SINGLE_NOTES);
 }
 
 #[test]
@@ -93,12 +133,50 @@ fn double_stop_tenths_play_as_two_voices() {
     check("double-stop-tenths", DOUBLE_STOPS, &[]);
 }
 
+/// Block size is how the host hands the engine audio, not part of the
+/// sound: with the tracked layer audible, every clip renders the same
+/// samples at every block-size pattern.
+#[test]
+fn every_clip_sounds_the_same_at_any_block_size() {
+    use synthbass_engine::{Engine, Param};
+    for name in CLIPS {
+        let clip = load_clip(&clip_path(name));
+        let render = |blocks: &[usize]| {
+            let mut engine = Engine::new(clip.sample_rate, 512);
+            engine.set_param(Param::TrackedLevel, 1.0);
+            engine.set_param(Param::TrackedGlide, 0.1);
+            common::render(&mut engine, &clip.dry, blocks).left
+        };
+        let reference = render(BLOCK_PATTERNS[0]);
+        for blocks in &BLOCK_PATTERNS[1..] {
+            let output = render(blocks);
+            let first = reference.iter().zip(&output).position(|(a, b)| a != b);
+            assert!(
+                first.is_none(),
+                "{name}, blocks {blocks:?}: differs from {:?} from {:.3}s",
+                BLOCK_PATTERNS[0],
+                first.unwrap_or(0) as f32 / clip.sample_rate
+            );
+        }
+    }
+}
+
+const CLIPS: [&str; 7] = [
+    "open-strings",
+    "chromatic-run",
+    "double-stop-thirds",
+    "double-stop-tenths",
+    "double-stop-sevenths",
+    "palm-mutes",
+    "slides",
+];
+
 /// Times (seconds) at which a note the tracker already reports counts a
 /// repick, away from any onset in the clip's notes: beating between the
 /// strings of a held chord read as picks, retriggering the filter envelope.
-fn misfired_repicks(name: &str) -> Vec<f32> {
+fn misfired_repicks(name: &str, blocks: &[usize]) -> Vec<f32> {
     let clip = load_clip(&clip_path(name));
-    let run = run_clip(&clip, &[128]);
+    let run = run_clip(&clip, blocks);
     let tol = clip.expected.timing_tolerance;
     let near_onset = |t: f32| {
         clip.expected
@@ -126,12 +204,14 @@ fn held_double_stops_are_not_picked_again() {
         "double-stop-tenths",
         "double-stop-sevenths",
     ] {
-        let misfires = misfired_repicks(name);
-        assert!(
-            misfires.is_empty(),
-            "{name}: {} repicks away from onsets: {misfires:.2?}",
-            misfires.len()
-        );
+        for blocks in BLOCK_PATTERNS {
+            let misfires = misfired_repicks(name, blocks);
+            assert!(
+                misfires.is_empty(),
+                "{name}, blocks {blocks:?}: {} repicks away from onsets: {misfires:.2?}",
+                misfires.len()
+            );
+        }
     }
 }
 
@@ -146,7 +226,16 @@ fn print_scores() {
         "double-stop-sevenths",
         "palm-mutes",
     ] {
-        println!("{name}\n{}", score(name));
+        let blocks: Vec<usize> = std::env::var("BLOCKS")
+            .unwrap_or("128".into())
+            .split(',')
+            .map(|b| b.parse().unwrap())
+            .collect();
+        println!("{name}\n{}", score(name, &blocks));
+        let clip = load_clip(&clip_path(name));
+        for s in score_tuner(&clip, &run_clip(&clip, &blocks)) {
+            println!("{s}");
+        }
     }
 }
 

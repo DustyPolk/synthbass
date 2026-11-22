@@ -166,10 +166,16 @@ impl TrackedLayer {
         self.gate = threshold;
     }
 
-    /// Hands the voices the notes heard now (loudest first) along with the
-    /// latest chunk of dry signal.
-    pub fn update(&mut self, notes: &[DetectedNote], dry: &[f32]) {
-        let string_level = self.string.process(dry);
+    /// Follows the string's level through the dry signal since the last
+    /// call.
+    pub fn listen(&mut self, dry: &[f32]) {
+        self.string.process(dry);
+        self.samples_since_newest = self.samples_since_newest.saturating_add(dry.len());
+    }
+
+    /// Hands the voices the notes heard now (loudest first).
+    pub fn update(&mut self, notes: &[DetectedNote]) {
+        let string_level = self.string.level();
         // A muted string ends its voices at once, without waiting for the
         // tracker's analysis to ring down.
         let notes = if string_level < self.gate { &[] } else { notes };
@@ -205,7 +211,6 @@ impl TrackedLayer {
             .filter(|_| self.glide > 0.0 && self.samples_since_newest >= self.glide_source_samples)
             .and_then(|i| self.voices[i].reading())
             .map(|reading| reading.pitch);
-        self.samples_since_newest = self.samples_since_newest.saturating_add(dry.len());
         for (i, (voice, note)) in self.voices.iter_mut().zip(playing).enumerate() {
             let starting = !voice.sounding && note.is_some();
             let new_note = note.is_some_and(|note| voice.note_id != Some(note.id));
@@ -535,7 +540,7 @@ impl StringLevel {
         }
     }
 
-    fn process(&mut self, dry: &[f32]) -> f32 {
+    fn process(&mut self, dry: &[f32]) {
         for &sample in dry {
             if self.filled == SLOT_SAMPLES {
                 self.slot = (self.slot + 1) % self.slot_peaks.len();
@@ -546,6 +551,9 @@ impl StringLevel {
             *peak = peak.max(sample.abs());
             self.filled += 1;
         }
+    }
+
+    fn level(&self) -> f32 {
         self.slot_peaks.iter().fold(0.0, |max, &p| max.max(p))
     }
 }
@@ -610,7 +618,8 @@ mod tests {
     fn play(layer: &mut TrackedLayer, notes: &[DetectedNote]) -> Vec<f32> {
         let mut notes = notes.to_vec();
         notes.sort_by(|a, b| b.level.total_cmp(&a.level));
-        layer.update(&notes, &[0.5; 32]);
+        layer.listen(&[0.5; 32]);
+        layer.update(&notes);
         for _ in 0..32 {
             layer.process();
         }

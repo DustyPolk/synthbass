@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use synthbass_engine::{Engine, NOISE_GATE_DEFAULT, Readout};
+use synthbass_engine::{Engine, NOISE_GATE_DEFAULT, Readout, TunerReading};
 
 use super::Rendered;
 
@@ -56,6 +56,12 @@ pub struct ClipRun {
     pub output: Rendered,
     pub readouts: Vec<(f32, Readout)>,
 }
+
+/// The block sizes every recorded-clip check runs at, each judged by the
+/// same bar: the app's usual 128 samples, and an odd size rotating with a
+/// small and a large one, so a block size can't change what the tracker
+/// hears.
+pub const BLOCK_PATTERNS: [&[usize]; 2] = [&[128], &[61, 128, 512]];
 
 /// Runs a clip through a fresh engine at the clip's sample rate, cycling
 /// through `block_sizes` for the chunk lengths.
@@ -518,6 +524,100 @@ pub fn score_slides(clip: &Clip, run: &ClipRun) -> Vec<SlideScore> {
                 .windows(2)
                 .map(|w| (w[1].1 - w[0].1).abs())
                 .fold(0.0, f32::max),
+        });
+    }
+    scores
+}
+
+/// What the tuner shows over one event's window (onset and offset each
+/// pulled in by the timing tolerance).
+#[derive(Debug)]
+pub struct TunerScore {
+    pub onset: f32,
+    /// The single note the tuner should name, or `None` when no clear single
+    /// note is expected (several notes, or one still ringing from before).
+    pub expected: Option<f32>,
+    /// Share of the window the tuner names the expected note (MIDI note and
+    /// cents) within the cents tolerance.
+    pub on_note: f32,
+    /// Share of the window it shows any other reading. With no clear single
+    /// note expected, a reading of any of the event's notes within the
+    /// tolerance is not counted; only blank is always right.
+    pub wrong: f32,
+    /// The wrong readings, as (seconds, MIDI note, cents), for messages.
+    pub wrong_readings: Vec<(f32, u8, f32)>,
+}
+
+impl std::fmt::Display for TunerScore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let expected = self.expected.map_or("blank".into(), |n| format!("{n:.2}"));
+        write!(
+            f,
+            "  {:6.2}s tuner {} on note {:.2} wrong {:.2}",
+            self.onset, expected, self.on_note, self.wrong
+        )?;
+        if let Some((t, note, cents)) = self.wrong_readings.first() {
+            write!(f, " (first at {t:.2}s: {note} {cents:+.0}c)")?;
+        }
+        Ok(())
+    }
+}
+
+/// Scores the tuner readings in `run` against each event in `clip`.
+pub fn score_tuner(clip: &Clip, run: &ClipRun) -> Vec<TunerScore> {
+    let expected = &clip.expected;
+    let tol = expected.timing_tolerance;
+    let step = |i: usize| {
+        let start = if i == 0 { 0.0 } else { run.readouts[i - 1].0 };
+        run.readouts[i].0 - start
+    };
+    // A reading names `target` (fractional MIDI): the nearest note and the
+    // cents from it, within the clip's tolerance.
+    let names = |reading: &TunerReading, target: f32| {
+        let pitch = reading.note as f32 + reading.cents / 100.0;
+        reading.note as f32 == target.round()
+            && (pitch - target).abs() * 100.0 <= expected.cents_tolerance
+    };
+    let mut scores = Vec::new();
+    for event in &expected.events {
+        let midi = |p: &Pitch| match p {
+            Pitch::Steady(hz) | Pitch::Ringing(hz) => Some(hz_to_midi(*hz)),
+            Pitch::Slide { .. } => None,
+        };
+        let single = match event.notes[..] {
+            [Pitch::Steady(hz)] => Some(hz_to_midi(hz)),
+            _ => None,
+        };
+        let allowed: Vec<f32> = event.notes.iter().filter_map(midi).collect();
+        let (from, to) = (event.onset + tol, event.offset - tol);
+        let (mut total, mut on_note, mut wrong) = (0.0, 0.0, 0.0);
+        let mut wrong_readings = Vec::new();
+        for (i, (t, readout)) in run.readouts.iter().enumerate() {
+            if *t < from || *t > to {
+                continue;
+            }
+            let dt = step(i);
+            total += dt;
+            let right = match (&readout.tuner, single) {
+                (None, None) => true,
+                (None, Some(_)) => continue,
+                (Some(r), Some(note)) => names(r, note),
+                (Some(r), None) => allowed.iter().any(|&n| names(r, n)),
+            };
+            if right {
+                on_note += dt;
+            } else if let Some(r) = &readout.tuner {
+                wrong += dt;
+                wrong_readings.push((*t, r.note, r.cents));
+            }
+        }
+        let total = f32::max(total, f32::EPSILON);
+        scores.push(TunerScore {
+            onset: event.onset,
+            expected: single,
+            on_note: on_note / total,
+            wrong: wrong / total,
+            wrong_readings,
         });
     }
     scores
