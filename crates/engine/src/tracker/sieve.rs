@@ -279,9 +279,8 @@ impl Sieve {
             // A louder attack beside a sounding note leaves too little of the
             // note's energy in the older half of any periodicity span for a
             // judgement; its settled partials still show it carries on.
-            let carries_on_unjudged = steady
-                && continues_sounding
-                && periodicity.clarity >= UNJUDGED_CLARITY;
+            let carries_on_unjudged =
+                steady && continues_sounding && periodicity.clarity >= UNJUDGED_CLARITY;
             if (!periodicity.judged && !carries_on_unjudged)
                 || (periodicity.clarity < MIN_CLARITY && !steady && !carried_on)
                 || self.outranked_from_below(
