@@ -4,7 +4,7 @@
 
 **Blocked by:** 07 (Four-voice polyphony)
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Context budget:** finish within one fresh context, well under 150K tokens. This ticket iterates on real recordings, so delegate bulky clip analysis (per-frame dumps, spectra) to a subagent and keep only its summary. Keep test output terse (failures and per-clip pass/fail only). If tuning is not converging by roughly 100K tokens, stop, record findings and remaining gaps in a `## Comments` section, and split the rest into a new ticket.
 
