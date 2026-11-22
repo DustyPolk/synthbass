@@ -129,6 +129,9 @@ fn oscillator_2_octave_is_heard_at_default_settings() {
 /// the note is picked.
 fn plucky_voice(envelope_amount: f32) -> Engine {
     let mut engine = open_voice();
+    // Oscillator 1 alone: the default blend beats slowly against
+    // oscillator 2's detune, which would read as a filter sweep here.
+    engine.set_param(Param::TrackedOscMix, 0.0);
     engine.set_param(Param::TrackedCutoff, 150.0);
     engine.set_param(Param::TrackedFilterEnvelopeAmount, envelope_amount);
     engine.set_param(Param::TrackedFilterEnvelopeDecay, 0.3);

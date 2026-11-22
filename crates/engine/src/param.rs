@@ -128,7 +128,10 @@ impl Param {
                 Cents,
                 -50.0,
                 50.0,
-                0.0,
+                // A slight detune, so the default even blend beats slowly
+                // instead of two same-pitch oscillators cancelling at random
+                // phase.
+                6.0,
             ),
             // An even blend, so oscillator 2's waveshape, octave and detune
             // are heard without first finding this knob.
