@@ -2,9 +2,9 @@
 //! notes with a harmonic sieve (Klapuri-style iterative cancellation).
 
 use super::bank::{BAND_COUNT, Bank, LOWEST_BAND};
-use crate::pitch::{hz_to_midi, midi_to_hz};
 use super::history::{History, Periodicity};
 use super::{F0_RANGE, MAX_DETECTED_NOTES};
+use crate::pitch::{hz_to_midi, midi_to_hz};
 
 /// Partials quieter than this fraction of the gate are ignored outright.
 const PARTIAL_FLOOR: f32 = 0.5;

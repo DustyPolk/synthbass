@@ -190,23 +190,26 @@ impl Routing {
     /// Interface input 1 and outputs 1/2, whatever the card profile calls
     /// them (`capture_FL` or `capture_AUX0`, and so on).
     fn interface_default(ports: &PortLists) -> Routing {
-        let interface = |names: &[String]| {
-            let mut found: Vec<String> = names
-                .iter()
-                .filter(|name| name.contains(INTERFACE_PATTERN))
-                .cloned()
-                .collect();
-            found.sort();
-            found.into_iter()
-        };
-        let mut sinks = interface(&ports.sinks);
+        let mut sinks = interface_ports(&ports.sinks);
         let choice = |port: Option<String>| port.map_or(Choice::Auto, Choice::Port);
         Routing {
-            input: choice(interface(&ports.sources).next()),
+            input: choice(interface_ports(&ports.sources).next()),
             output_1: choice(sinks.next()),
             output_2: choice(sinks.next()),
         }
     }
+}
+
+/// The interface's ports among `names`, in order: its input 1 or output 1
+/// comes first whatever the card profile calls the channels.
+pub fn interface_ports(names: &[String]) -> impl Iterator<Item = String> {
+    let mut found: Vec<String> = names
+        .iter()
+        .filter(|name| name.contains(INTERFACE_PATTERN))
+        .cloned()
+        .collect();
+    found.sort();
+    found.into_iter()
 }
 
 #[cfg(test)]

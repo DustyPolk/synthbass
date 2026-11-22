@@ -4,7 +4,7 @@ mod audio;
 mod connection;
 mod patch_panel;
 mod patches;
-mod ports;
+use synthbass::ports;
 mod ports_panel;
 mod settings;
 mod ui;

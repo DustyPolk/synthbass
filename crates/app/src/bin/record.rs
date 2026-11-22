@@ -14,7 +14,6 @@ use jack::{AudioIn, Client, ClientOptions, Control, PortFlags, PortSpec, Process
 use rtrb::{Consumer, Producer, RingBuffer};
 
 const CLIENT_NAME: &str = "synthbass-record";
-const INTERFACE_PATTERN: &str = "Scarlett";
 /// Seconds of audio the ring between the JACK thread and the writer holds.
 const RING_SECONDS: usize = 10;
 
@@ -138,17 +137,19 @@ fn record(args: &Args) -> Result<(), String> {
     Ok(())
 }
 
-/// Scarlett input 1: the first physical Scarlett capture port.
+/// Scarlett input 1, as the app picks it.
 fn default_source(client: &Client) -> Result<String, String> {
-    capture_ports(client, Some(INTERFACE_PATTERN))
-        .into_iter()
-        .next()
-        .ok_or_else(|| {
-            format!(
-                "Scarlett not found; pass --port. Capture ports:\n  {}",
-                capture_ports(client, None).join("\n  ")
-            )
-        })
+    default_source_in(&capture_ports(client, None)).ok_or_else(|| {
+        format!(
+            "Scarlett not found; pass --port. Capture ports:\n  {}",
+            capture_ports(client, None).join("\n  ")
+        )
+    })
+}
+
+/// The default source among `capture_ports`: the one the app connects to.
+fn default_source_in(capture_ports: &[String]) -> Option<String> {
+    synthbass::ports::interface_ports(capture_ports).next()
 }
 
 fn capture_ports(client: &Client, pattern: Option<&str>) -> Vec<String> {
@@ -234,6 +235,7 @@ mod tests {
     use super::*;
     use std::io::Cursor;
     use std::sync::atomic::AtomicBool;
+    use synthbass::ports::{Choice, PortLists, Routing};
 
     fn wav_writer(buffer: &mut Cursor<Vec<u8>>) -> hound::WavWriter<&mut Cursor<Vec<u8>>> {
         hound::WavWriter::new(buffer, wav_spec(48_000)).unwrap()
@@ -259,6 +261,24 @@ mod tests {
         assert!(parse(&[]).is_err());
         assert!(parse(&["x.wav", "--port"]).is_err());
         assert!(parse(&["x.wav", "y.wav"]).is_err());
+    }
+
+    #[test]
+    fn defaults_to_the_input_port_the_app_picks_from_the_same_port_list() {
+        let sources: Vec<String> = [
+            "Scarlett 4i4:capture_FR",
+            "Built-in Audio:capture_FL",
+            "Scarlett 4i4:capture_FL",
+        ]
+        .map(String::from)
+        .into();
+        let ports = PortLists {
+            sources: sources.clone(),
+            sinks: Vec::new(),
+        };
+        let app = Routing::at_launch(&Routing::default(), &ports).input;
+        assert_eq!(app, Choice::Port("Scarlett 4i4:capture_FL".into()));
+        assert_eq!(default_source_in(&sources).map(Choice::Port), Some(app));
     }
 
     #[test]
