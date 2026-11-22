@@ -1,12 +1,13 @@
-//! The window: level knobs, input meter, and connection status.
+//! The window: tuner, level knobs, input meter, noise gate, and connection
+//! status.
 
 use std::time::Duration;
 
 use eframe::egui;
 use rtrb::{Consumer, Producer};
-use synthbass_engine::{Param, Readout};
+use synthbass_engine::{NOISE_GATE_RANGE, Param, Readout};
 
-use crate::audio::ConnectionStatus;
+use crate::audio::{ConnectionStatus, NoiseGate};
 
 /// Meter floor; anything quieter shows as an empty bar.
 const METER_FLOOR_DB: f32 = -60.0;
@@ -18,6 +19,8 @@ pub struct SynthbassApp {
     status: ConnectionStatus,
     dry_level: f32,
     output_level: f32,
+    noise_gate: NoiseGate,
+    gate_threshold: f32,
 }
 
 impl SynthbassApp {
@@ -25,6 +28,7 @@ impl SynthbassApp {
         params: Producer<(Param, f32)>,
         readouts: Consumer<Readout>,
         status: ConnectionStatus,
+        noise_gate: NoiseGate,
     ) -> Self {
         SynthbassApp {
             params,
@@ -33,6 +37,8 @@ impl SynthbassApp {
             status,
             dry_level: Param::DryLevel.default_value(),
             output_level: Param::OutputLevel.default_value(),
+            gate_threshold: noise_gate.get(),
+            noise_gate,
         }
     }
 
@@ -52,6 +58,37 @@ impl SynthbassApp {
     }
 }
 
+impl SynthbassApp {
+    /// Note name and cents, or a blank line when there is no clear single
+    /// note, so the layout doesn't jump.
+    fn tuner(&self, ui: &mut egui::Ui) {
+        let text = match self.readout.tuner {
+            Some(reading) => format!(
+                "{}{}  {:+.0} ¢",
+                reading.name(),
+                reading.octave(),
+                reading.cents
+            ),
+            None => "–".into(),
+        };
+        let in_tune = self.readout.tuner.is_some_and(|r| r.cents.abs() < 5.0);
+        let color = if in_tune {
+            egui::Color32::LIGHT_GREEN
+        } else {
+            ui.visuals().text_color()
+        };
+        ui.horizontal(|ui| {
+            ui.label("Tuner");
+            ui.label(
+                egui::RichText::new(text)
+                    .size(28.0)
+                    .monospace()
+                    .color(color),
+            );
+        });
+    }
+}
+
 impl eframe::App for SynthbassApp {
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         while let Ok(readout) = self.readouts.pop() {
@@ -62,10 +99,20 @@ impl eframe::App for SynthbassApp {
             ui.heading("Synthbass");
             ui.add_space(8.0);
 
+            self.tuner(ui);
+            ui.add_space(8.0);
+
             ui.label("Input");
             let db = gain_to_db(self.readout.input_level);
             let fill = ((db - METER_FLOOR_DB) / -METER_FLOOR_DB).clamp(0.0, 1.0);
             ui.add(egui::ProgressBar::new(fill).text(format_db(self.readout.input_level)));
+            let gate = egui::Slider::new(&mut self.gate_threshold, NOISE_GATE_RANGE)
+                .logarithmic(true)
+                .text("Noise gate")
+                .custom_formatter(|gain, _| format_db(gain as f32));
+            if ui.add(gate).changed() {
+                self.noise_gate.set(self.gate_threshold);
+            }
             ui.add_space(8.0);
 
             ui.label("Mix");

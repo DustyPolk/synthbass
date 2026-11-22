@@ -4,6 +4,9 @@
 //! The audio thread talks to the UI only through wait-free ring buffers, so it
 //! never blocks on the UI thread.
 
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU32, Ordering};
+
 use jack::{AudioIn, AudioOut, Client, ClientOptions, Control, PortFlags, PortSpec, ProcessScope};
 use rtrb::{Consumer, Producer};
 use synthbass_engine::{Engine, Param, Readout};
@@ -12,6 +15,26 @@ const CLIENT_NAME: &str = "synthbass";
 const INTERFACE_PATTERN: &str = "Scarlett";
 /// The engine's block size. Larger JACK periods are processed in chunks.
 const MAX_BLOCK: usize = 1024;
+
+/// The global noise gate threshold, shared with the audio thread. It is a
+/// setting of the room, not of a patch, so it travels apart from sound
+/// parameters.
+#[derive(Clone)]
+pub struct NoiseGate(Arc<AtomicU32>);
+
+impl NoiseGate {
+    pub fn new(threshold: f32) -> Self {
+        NoiseGate(Arc::new(AtomicU32::new(threshold.to_bits())))
+    }
+
+    pub fn get(&self) -> f32 {
+        f32::from_bits(self.0.load(Ordering::Relaxed))
+    }
+
+    pub fn set(&self, threshold: f32) {
+        self.0.store(threshold.to_bits(), Ordering::Relaxed);
+    }
+}
 
 /// What the window shows on its connection status line.
 #[derive(Clone)]
@@ -26,8 +49,12 @@ pub struct Audio {
     pub status: ConnectionStatus,
 }
 
-pub fn start(params: Consumer<(Param, f32)>, readouts: Producer<Readout>) -> Audio {
-    match start_client(params, readouts) {
+pub fn start(
+    params: Consumer<(Param, f32)>,
+    readouts: Producer<Readout>,
+    noise_gate: NoiseGate,
+) -> Audio {
+    match start_client(params, readouts, noise_gate) {
         Ok((client, status)) => Audio {
             _client: Some(client),
             status,
@@ -45,6 +72,7 @@ pub fn start(params: Consumer<(Param, f32)>, readouts: Producer<Readout>) -> Aud
 fn start_client(
     params: Consumer<(Param, f32)>,
     readouts: Producer<Readout>,
+    noise_gate: NoiseGate,
 ) -> Result<(jack::AsyncClient<(), Processor>, ConnectionStatus), jack::Error> {
     let (client, _status) = Client::new(CLIENT_NAME, ClientOptions::NO_START_SERVER)?;
     let processor = Processor {
@@ -54,6 +82,7 @@ fn start_client(
         out_2: client.register_port("out_2", AudioOut::default())?,
         params,
         readouts,
+        noise_gate,
     };
     let own_ports = [
         processor.input.name()?,
@@ -109,6 +138,7 @@ pub struct Processor {
     out_2: jack::Port<AudioOut>,
     params: Consumer<(Param, f32)>,
     readouts: Producer<Readout>,
+    noise_gate: NoiseGate,
 }
 
 impl jack::ProcessHandler for Processor {
@@ -116,6 +146,7 @@ impl jack::ProcessHandler for Processor {
         while let Ok((param, value)) = self.params.pop() {
             self.engine.set_param(param, value);
         }
+        self.engine.set_noise_gate(self.noise_gate.get());
 
         let dry = self.input.as_slice(scope);
         let out_1 = self.out_1.as_mut_slice(scope);
