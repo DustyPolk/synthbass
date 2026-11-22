@@ -22,7 +22,11 @@ fn filter(cutoff: f32, resonance: f32) -> Engine {
 /// Peak gain of a quiet tone (quiet so the saturation stays linear),
 /// measured after the filter and the parameter smoothing settle.
 fn gain_at(cutoff: f32, resonance: f32, freq: f32) -> f32 {
-    let out = render(&mut filter(cutoff, resonance), &sine(freq, 0.01, 1.0), &[128]);
+    let out = render(
+        &mut filter(cutoff, resonance),
+        &sine(freq, 0.01, 1.0),
+        &[128],
+    );
     peak(&out.left[24_000..]) / 0.01
 }
 

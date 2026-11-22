@@ -269,7 +269,10 @@ fn voices_starting_at_different_times_sweep_independently() {
     let mut dry = vec![0.0; (0.3 * SAMPLE_RATE) as usize];
     dry.extend(bass_tone(low, 0.3, 1.0, 0.8));
     let late = (0.5 * SAMPLE_RATE) as usize;
-    for (s, t) in dry[late..].iter_mut().zip(bass_tone(hz(61.0), 0.3, 1.0, 0.6)) {
+    for (s, t) in dry[late..]
+        .iter_mut()
+        .zip(bass_tone(hz(61.0), 0.3, 1.0, 0.6))
+    {
         *s += t;
     }
     let mut out = Vec::new();
