@@ -1,8 +1,7 @@
 //! The tracked layer: each detected note gets a voice whose oscillator plays
 //! at the note's exact pitch and whose loudness follows the string.
 
-use std::ops::Deref;
-
+use crate::fixed_list::FixedList;
 use crate::ladder::LadderFilter;
 use crate::noise_gate::NoiseGate;
 use crate::param::{Octave, Param, Waveshape};
@@ -27,19 +26,7 @@ pub struct VoiceReading {
 }
 
 /// The voices sounding right now.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct Voices {
-    voices: [VoiceReading; MAX_VOICES],
-    len: usize,
-}
-
-impl Deref for Voices {
-    type Target = [VoiceReading];
-
-    fn deref(&self) -> &[VoiceReading] {
-        &self.voices[..self.len]
-    }
-}
+pub type Voices = FixedList<VoiceReading, MAX_VOICES>;
 
 pub struct TrackedLayer {
     voices: [Voice; MAX_VOICES],
@@ -279,8 +266,7 @@ impl TrackedLayer {
     pub fn voices(&self) -> Voices {
         let mut voices = Voices::default();
         for reading in self.voices.iter().filter_map(Voice::reading) {
-            voices.voices[voices.len] = reading;
-            voices.len += 1;
+            voices.push(reading);
         }
         voices
     }

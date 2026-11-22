@@ -4,6 +4,7 @@
 use super::bank::{BAND_COUNT, Bank, LOWEST_BAND};
 use super::history::{History, Periodicity};
 use super::{F0_RANGE, MAX_DETECTED_NOTES};
+use crate::fixed_list::FixedList;
 use crate::pitch::{hz_to_midi, midi_to_hz};
 
 /// Partials quieter than this fraction of the gate are ignored outright.
@@ -113,6 +114,9 @@ struct Partial {
     used: bool,
 }
 
+/// The notes heard in one hop, strongest first.
+pub type RawNotes = FixedList<RawNote, MAX_DETECTED_NOTES>;
+
 /// A note as heard in one hop, before tracking over time.
 #[derive(Clone, Copy, Default, Debug)]
 pub struct RawNote {
@@ -143,11 +147,9 @@ struct Refined {
 }
 
 pub struct Sieve {
-    partials: [Partial; BAND_COUNT],
-    partial_count: usize,
+    partials: FixedList<Partial, BAND_COUNT>,
     partial_of_band: [Option<u8>; BAND_COUNT],
-    candidates: [f32; 2 * BAND_COUNT],
-    candidate_count: usize,
+    candidates: FixedList<f32, { 2 * BAND_COUNT }>,
     /// Each band's slow IF this hop, in Hz.
     slow: [f32; BAND_COUNT],
     /// Whether each band has settled on a partial (kept across hops for
@@ -170,11 +172,9 @@ struct Support {
 impl Sieve {
     pub fn new() -> Self {
         Sieve {
-            partials: [Partial::default(); BAND_COUNT],
-            partial_count: 0,
+            partials: FixedList::default(),
             partial_of_band: [None; BAND_COUNT],
-            candidates: [0.0; 2 * BAND_COUNT],
-            candidate_count: 0,
+            candidates: FixedList::default(),
             slow: [0.0; BAND_COUNT],
             settled: [false; BAND_COUNT],
             moving_span: (0.0, 0.0),
@@ -190,8 +190,7 @@ impl Sieve {
         history: &History,
         gate: f32,
         context: &Context,
-        out: &mut [RawNote; MAX_DETECTED_NOTES],
-    ) -> usize {
+    ) -> RawNotes {
         let Context {
             sounding,
             alone,
@@ -200,10 +199,10 @@ impl Sieve {
         self.pick_partials(bank, gate);
         self.collect_candidates();
 
-        let mut count = 0;
+        let mut out = RawNotes::default();
         let mut strongest = 0.0;
         let mut moving = false;
-        while count < MAX_DETECTED_NOTES {
+        while out.len() < MAX_DETECTED_NOTES {
             let Some((index, mut support)) = self.best_candidate() else {
                 break;
             };
@@ -225,23 +224,22 @@ impl Sieve {
             let sparse = support.harmonic[..3].iter().flatten().count() < 2;
             if sparse {
                 let midi = hz_to_midi(f0);
-                let fuses = out[..count].iter().any(|n| {
+                let fuses = out.iter().any(|n| {
                     FUSING_INTERVALS
                         .iter()
                         .any(|&i| (midi - n.pitch - i).abs() <= HARMONIC_TOLERANCE)
                 });
                 // What is left of a sounding note can be one of its upper
                 // harmonics alone (a string whose lowest partials died first).
-                if !fuses && let Some(pitch) = remnant(midi, sounding, &out[..count]) {
+                if !fuses && let Some(pitch) = remnant(midi, sounding, &out) {
                     let level = self.claim(&support);
-                    let duplicate = out[..count].iter().any(|n| (n.pitch - pitch).abs() < 0.5);
+                    let duplicate = out.iter().any(|n| (n.pitch - pitch).abs() < 0.5);
                     if !duplicate && level >= gate {
-                        out[count] = RawNote {
+                        out.push(RawNote {
                             pitch,
                             level,
                             clarity: 1.0,
-                        };
-                        count += 1;
+                        });
                     }
                     continue;
                 }
@@ -277,7 +275,7 @@ impl Sieve {
             let continues_sounding = sounding
                 .iter()
                 .any(|&pitch| (pitch - hz_to_midi(f0)).abs() <= CONTINUATION_DISTANCE);
-            let carried_on = count > 0 && settled_partials > 0 && continues_sounding;
+            let carried_on = !out.is_empty() && settled_partials > 0 && continues_sounding;
             // A louder attack beside a sounding note leaves too little of the
             // note's energy in the older half of any periodicity span for a
             // judgement; its settled partials still show it carries on.
@@ -301,7 +299,7 @@ impl Sieve {
             let refined = self.refine(bank, f0, history, &periodicity, alone, &support.harmonic);
             let pitch = refined.pitch;
             // Two candidates can settle on the same pitch.
-            let duplicate = out[..count].iter().any(|n| (n.pitch - pitch).abs() < 0.5);
+            let duplicate = out.iter().any(|n| (n.pitch - pitch).abs() < 0.5);
             strongest = f32::max(strongest, support.salience);
             let mut level = self.claim(&support);
             // A sliding note leaves its partials ringing behind it in the
@@ -334,19 +332,18 @@ impl Sieve {
                 } else {
                     0.0
                 };
-            out[count] = RawNote {
+            out.push(RawNote {
                 pitch,
                 level,
                 clarity: own_clarity,
-            };
-            count += 1;
+            });
         }
         if moving {
             self.moving_hops = MOVING_HOLD_HOPS;
         } else {
             self.moving_hops = self.moving_hops.saturating_sub(1);
         }
-        count
+        out
     }
 
     /// Marks a note's partials used; returns the note's level.
@@ -371,7 +368,7 @@ impl Sieve {
             behind.max(to) + HARMONIC_TOLERANCE,
         );
         let mut energy = 0.0;
-        for partial in &mut self.partials[..self.partial_count] {
+        for partial in self.partials.iter_mut() {
             let midi = hz_to_midi(partial.freq);
             let passed = (1..=HARMONICS).any(|h| {
                 let fundamental = midi - 12.0 * (h as f32).log2();
@@ -460,7 +457,7 @@ impl Sieve {
     /// band near a partial reports the partial's frequency, and only the
     /// band it falls in claims it.
     fn pick_partials(&mut self, bank: &Bank, gate: f32) {
-        self.partial_count = 0;
+        self.partials.clear();
         self.partial_of_band = [None; BAND_COUNT];
         let mut fast = [0.0; BAND_COUNT];
         let mut amp = [0.0; BAND_COUNT];
@@ -509,7 +506,7 @@ impl Sieve {
             // both ring at their centres during an attack): keep the louder.
             // Settled partials a semitone apart (a seventh's or a third's
             // harmonics) are both kept.
-            if let Some(last) = self.partial_count.checked_sub(1)
+            if let Some(last) = self.partials.len().checked_sub(1)
                 && self.partials[last].band + 1 == band
                 && (hz_to_midi(freq) - hz_to_midi(self.partials[last].freq) < SAME_PARTIAL_DISTANCE
                     || !self.settled[band]
@@ -522,21 +519,19 @@ impl Sieve {
                 }
                 continue;
             }
-            self.partials[self.partial_count] = partial;
-            self.partial_of_band[band] = Some(self.partial_count as u8);
-            self.partial_count += 1;
+            self.partial_of_band[band] = Some(self.partials.len() as u8);
+            self.partials.push(partial);
         }
     }
 
     /// Every partial could be a fundamental, and so could half of every
     /// partial (a weak or missing fundamental).
     fn collect_candidates(&mut self) {
-        self.candidate_count = 0;
-        for p in &self.partials[..self.partial_count] {
+        self.candidates.clear();
+        for p in self.partials.iter() {
             for f0 in [p.freq, p.freq / 2.0] {
                 if (F0_RANGE.0..=F0_RANGE.1).contains(&f0) {
-                    self.candidates[self.candidate_count] = f0;
-                    self.candidate_count += 1;
+                    self.candidates.push(f0);
                 }
             }
         }
@@ -544,7 +539,7 @@ impl Sieve {
 
     fn best_candidate(&self) -> Option<(usize, Support)> {
         let mut best: Option<(usize, Support)> = None;
-        for (index, &f0) in self.candidates[..self.candidate_count].iter().enumerate() {
+        for (index, &f0) in self.candidates.iter().enumerate() {
             if f0 <= 0.0 {
                 continue;
             }

@@ -4,6 +4,7 @@
 //! processing path is realtime-safe: no allocation, locking, or I/O.
 
 mod direct;
+mod fixed_list;
 mod ladder;
 mod limiter;
 mod noise_gate;
@@ -16,6 +17,7 @@ mod tracked;
 mod tracker;
 
 use direct::DirectLayer;
+pub use fixed_list::FixedList;
 pub use limiter::LIMITER_CEILING;
 use limiter::Limiter;
 pub use noise_gate::NoiseGate;

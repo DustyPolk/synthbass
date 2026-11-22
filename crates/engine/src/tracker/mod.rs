@@ -1,7 +1,5 @@
 //! The tracker: detects the notes being played in the dry signal (ADR 0002).
 
-use std::ops::Deref;
-
 /// The most notes the tracker reports at once: more than the four voices, so
 /// voice allocation can see a fifth note arrive and steal for it.
 pub const MAX_DETECTED_NOTES: usize = 6;
@@ -25,19 +23,7 @@ pub struct DetectedNote {
 }
 
 /// The notes detected right now, loudest first.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
-pub struct DetectedNotes {
-    notes: [DetectedNote; MAX_DETECTED_NOTES],
-    len: usize,
-}
-
-impl Deref for DetectedNotes {
-    type Target = [DetectedNote];
-
-    fn deref(&self) -> &[DetectedNote] {
-        &self.notes[..self.len]
-    }
-}
+pub type DetectedNotes = FixedList<DetectedNote, MAX_DETECTED_NOTES>;
 
 mod bank;
 mod decimator;
@@ -51,6 +37,7 @@ use decimator::Decimator;
 use history::History;
 use sieve::{Context, RawNote, Sieve};
 
+use crate::fixed_list::FixedList;
 use crate::readout::{PeakMeter, TunerReading};
 
 /// Fundamentals the tracker considers, in Hz: just below low E to just
@@ -191,12 +178,9 @@ impl Tracker {
 
     fn hop(&mut self) {
         self.bank.hop();
-        let mut heard = [RawNote::default(); MAX_DETECTED_NOTES];
-        let mut sounding = [0.0; MAX_DETECTED_NOTES];
-        let mut sounding_count = 0;
+        let mut sounding = FixedList::<f32, MAX_DETECTED_NOTES>::default();
         for t in self.tracks.iter().flatten().filter(|t| t.reported) {
-            sounding[sounding_count] = t.note.pitch;
-            sounding_count += 1;
+            sounding.push(t.note.pitch);
         }
         // A note not yet reported counts too, unless it is near a sounding
         // note (that note's attack settling): a lone note's periodicity
@@ -207,23 +191,22 @@ impl Tracker {
             .flatten()
             .filter(|t| {
                 !t.reported
-                    && !sounding[..sounding_count]
+                    && !sounding
                         .iter()
                         .any(|&s| (s - t.note.pitch).abs() <= MATCH_RADIUS)
             })
             .count();
-        let count = self.sieve.analyse(
+        let heard = self.sieve.analyse(
             &self.bank,
             &self.history,
             self.gate,
             &Context {
-                sounding: &sounding[..sounding_count],
-                alone: sounding_count + pending_apart <= 1,
+                sounding: &sounding,
+                alone: sounding.len() + pending_apart <= 1,
                 picked: self.hops_since_pick <= self.pick_window_hops,
             },
-            &mut heard,
         );
-        let found = continuations(&self.tracks, &heard[..count]);
+        let found = continuations(&self.tracks, &heard);
 
         let pick_level = self.pick_meter.level();
         // The ring runs oldest first from `pick_history_index`; the levels at
@@ -303,7 +286,7 @@ impl Tracker {
             }
         }
 
-        for i in (0..count).filter(|&i| !matched[i]) {
+        for i in (0..heard.len()).filter(|&i| !matched[i]) {
             let Some(free) = self.tracks.iter_mut().find(|s| s.is_none()) else {
                 break;
             };
@@ -331,10 +314,9 @@ impl Tracker {
     pub fn notes(&self) -> DetectedNotes {
         let mut notes = DetectedNotes::default();
         for t in self.tracks.iter().flatten().filter(|t| t.reported) {
-            notes.notes[notes.len] = t.note;
-            notes.len += 1;
+            notes.push(t.note);
         }
-        notes.notes[..notes.len].sort_unstable_by(|a, b| b.level.total_cmp(&a.level));
+        notes.sort_unstable_by(|a, b| b.level.total_cmp(&a.level));
         notes
     }
 
