@@ -33,3 +33,7 @@ _Avoid_: Envelope follower (as a domain term), amp envelope
 **Filter envelope**:
 A Moog-style sweep of a voice's filter that fires when its note is detected and opens wider the harder the note is picked.
 _Avoid_: ADSR, contour
+
+**Glide**:
+A voice sliding into a new note's pitch over a set time instead of jumping, like Moog portamento. It applies only when a voice changes note; slides, bends and vibrato within a note are followed exactly.
+_Avoid_: Portamento (as a control name), slew
