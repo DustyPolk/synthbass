@@ -16,7 +16,7 @@ mod tracker;
 use direct::DirectLayer;
 pub use limiter::LIMITER_CEILING;
 use limiter::Limiter;
-pub use param::{Format, LEVEL_FLOOR_DB, Param, ParamInfo, Section, gain_to_db};
+pub use param::{Format, LEVEL_FLOOR_DB, Octave, Param, ParamInfo, Section, Waveshape, gain_to_db};
 pub use patch::{PATCH_VERSION, Patch};
 use readout::PeakMeter;
 pub use readout::{Readout, TunerReading};

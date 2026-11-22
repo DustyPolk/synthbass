@@ -7,8 +7,8 @@ use std::time::Duration;
 use eframe::egui;
 use rtrb::Consumer;
 use synthbass_engine::{
-    Format, LEVEL_FLOOR_DB, MAX_VOICES, NOISE_GATE_RANGE, Param, Readout, Section, TunerReading,
-    gain_to_db,
+    Format, LEVEL_FLOOR_DB, MAX_VOICES, NOISE_GATE_RANGE, Octave, Param, Readout, Section,
+    TunerReading, Waveshape, gain_to_db,
 };
 
 use crate::audio::{NoiseGate, SoundParams};
@@ -113,8 +113,14 @@ impl SynthbassApp {
     fn control(&mut self, ui: &mut egui::Ui, param: Param) {
         let info = param.info();
         match info.format {
-            Format::Waveshape => self.switch(ui, param, &[0.0, 1.0]),
-            Format::Octave => self.switch(ui, param, &[-1.0, 0.0, 1.0]),
+            Format::Waveshape => {
+                self.switch(ui, param, &Waveshape::ALL.map(Waveshape::value), |v| {
+                    Waveshape::from_value(v).value()
+                })
+            }
+            Format::Octave => self.switch(ui, param, &Octave::ALL.map(Octave::value), |v| {
+                Octave::from_value(v).value()
+            }),
             _ => self.knob(ui, param),
         }
     }
@@ -131,10 +137,17 @@ impl SynthbassApp {
         }
     }
 
-    /// One button per choice, e.g. saw / square or −1 / 0 / +1.
-    fn switch(&mut self, ui: &mut egui::Ui, param: Param, choices: &[f32]) {
+    /// One button per choice, e.g. saw / square or −1 / 0 / +1; the one lit
+    /// is the choice the current value reads as (`choice_of`).
+    fn switch(
+        &mut self,
+        ui: &mut egui::Ui,
+        param: Param,
+        choices: &[f32],
+        choice_of: fn(f32) -> f32,
+    ) {
         let info = param.info();
-        let before = self.current.get(param);
+        let before = choice_of(self.current.get(param));
         let mut value = before;
         ui.horizontal(|ui| {
             for &choice in choices {
