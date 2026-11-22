@@ -3,12 +3,16 @@
 //! Pure DSP with no audio-backend or GUI dependencies (ADR 0003). The
 //! processing path is realtime-safe: no allocation, locking, or I/O.
 
+mod direct;
+mod ladder;
 mod limiter;
 mod param;
 mod readout;
 mod smoothed;
 mod tracker;
 
+use direct::DirectLayer;
+pub use ladder::LadderFilter;
 pub use limiter::LIMITER_CEILING;
 use limiter::Limiter;
 pub use param::Param;
@@ -20,12 +24,13 @@ pub use tracker::{
     DetectedNote, DetectedNotes, MAX_DETECTED_NOTES, NOISE_GATE_DEFAULT, NOISE_GATE_RANGE,
 };
 
-/// Signal chain in this slice: dry signal → dry signal level → output level
-/// → hard limiter → outputs 1/2 (dual mono).
+/// Signal chain: dry signal → (dry signal level + direct layer) → output
+/// level → hard limiter → outputs 1/2 (dual mono).
 pub struct Engine {
     max_block_size: usize,
     dry_level: Smoothed,
     output_level: Smoothed,
+    direct: DirectLayer,
     limiter: Limiter,
     input_meter: PeakMeter,
     tracker: Tracker,
@@ -39,6 +44,7 @@ impl Engine {
             max_block_size,
             dry_level: Smoothed::new(Param::DryLevel.default_value(), sample_rate),
             output_level: Smoothed::new(Param::OutputLevel.default_value(), sample_rate),
+            direct: DirectLayer::new(sample_rate),
             limiter: Limiter::new(sample_rate),
             input_meter: PeakMeter::new(sample_rate),
             tracker: Tracker::new(sample_rate),
@@ -51,6 +57,11 @@ impl Engine {
         match param {
             Param::DryLevel => self.dry_level.set_target(value),
             Param::OutputLevel => self.output_level.set_target(value),
+            Param::DirectDrive
+            | Param::DirectCutoff
+            | Param::DirectResonance
+            | Param::DirectEnvelopeSensitivity
+            | Param::DirectLevel => self.direct.set_param(param, value),
         }
     }
 
@@ -75,9 +86,8 @@ impl Engine {
         self.tracker.process(dry);
         for ((&d, l), r) in dry.iter().zip(left.iter_mut()).zip(right.iter_mut()) {
             self.input_meter.process(d);
-            let out = self
-                .limiter
-                .process(d * self.dry_level.next() * self.output_level.next());
+            let mix = d * self.dry_level.next() + self.direct.process(d);
+            let out = self.limiter.process(mix * self.output_level.next());
             *l = out;
             *r = out;
         }

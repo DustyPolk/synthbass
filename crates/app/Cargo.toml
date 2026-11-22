@@ -10,3 +10,8 @@ synthbass-engine = { path = "../engine" }
 jack = "0.14"
 eframe = "0.37"
 rtrb = "0.4"
+serde = { version = "1", features = ["derive"] }
+toml = "1"
+dirs = "7"
+hound = "3.5"
+ctrlc = "3.4"

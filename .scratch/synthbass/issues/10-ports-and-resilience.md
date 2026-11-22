@@ -4,13 +4,13 @@
 
 **Blocked by:** 01 (Dry signal passthrough)
 
-**Status:** ready-for-agent
+**Status:** done
 
 **Context budget:** finish within one fresh context, well under 150K tokens. Read `GLOSSARY.md`, the spec, and the relevant ADRs; skip anything unrelated. Keep test and build output terse (filter to failures).
 
-- [ ] Input and output dropdowns list available JACK ports and reconnect on change
-- [ ] Clear in-window messages for: audio server unreachable, Scarlett not found, chosen port vanished
+- [x] Input and output dropdowns list available JACK ports and reconnect on change
+- [x] Clear in-window messages for: audio server unreachable, Scarlett not found, chosen port vanished
 - [ ] Unplug then replug the Scarlett: the app reconnects (automatically or via one click) without restart
-- [ ] Settings file under the user's config directory stores last-used ports; a missing or corrupt settings file falls back to defaults without crashing
-- [ ] The app requests a low PipeWire buffer (64–128 samples at 48 kHz, e.g. via the node latency property or `PIPEWIRE_LATENCY` before the JACK client opens) and the window shows the actual buffer size and resulting latency. Ticket 01 observed the graph running at 1024 samples.
+- [x] Settings file under the user's config directory stores last-used ports; a missing or corrupt settings file falls back to defaults without crashing
+- [x] The app requests a low PipeWire buffer (64–128 samples at 48 kHz, e.g. via the node latency property or `PIPEWIRE_LATENCY` before the JACK client opens) and the window shows the actual buffer size and resulting latency. Ticket 01 observed the graph running at 1024 samples.
 - [ ] Verified by hand: unplug/replug, minimise while playing, launch with the Scarlett absent
