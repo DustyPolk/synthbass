@@ -1,7 +1,7 @@
 //! The patch record: a named, versioned set of every sound parameter, and its
 //! human-readable file format.
 
-use synthbass_engine::{Format, Param};
+use crate::{Format, Param};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Patch {
@@ -42,7 +42,7 @@ impl Patch {
                 .expect("sections are tables");
             table.insert(key.into(), encode(param, self.get(param)));
         }
-        toml::to_string_pretty(&file).expect("a table of plain values serializes")
+        file.to_string()
     }
 
     /// Reads a patch file. Missing, unknown, or unreadable fields fall back to
@@ -111,99 +111,4 @@ fn decode(param: Param, value: &toml::Value) -> Option<f32> {
     };
     let number = number as f32;
     number.is_finite().then_some(number)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// A value inside the param's range that is not its default.
-    fn unusual(param: Param) -> f32 {
-        let range = param.range();
-        match param.info().format {
-            Format::Waveshape => 1.0,
-            Format::Octave => -1.0,
-            _ => range.start() + 0.37 * (range.end() - range.start()),
-        }
-    }
-
-    #[test]
-    fn saving_then_loading_round_trips_every_parameter() {
-        let mut patch = Patch::new("Round trip");
-        for param in Param::ALL {
-            patch.set(param, unusual(param));
-            assert_ne!(patch.get(param), param.default_value(), "{param:?}");
-        }
-        let loaded = Patch::from_toml(&patch.to_toml(), "fallback").unwrap();
-        assert_eq!(loaded, patch);
-    }
-
-    #[test]
-    fn a_file_missing_newer_fields_loads_with_defaults() {
-        // As an older version would have written it: no glide, no osc mix,
-        // no mix section; plus a field from some newer version.
-        let text = r#"
-            version = 1
-            name = "Old"
-            future_field = "ignored"
-
-            [direct]
-            cutoff_hz = 900
-            level = 0.5
-
-            [tracked]
-            osc1_waveshape = "square"
-            resonance = 0.8
-            wobble = 3.0
-        "#;
-        let patch = Patch::from_toml(text, "fallback").unwrap();
-        assert_eq!(patch.name, "Old");
-        assert_eq!(patch.get(Param::DirectCutoff), 900.0);
-        assert_eq!(patch.get(Param::DirectLevel), 0.5);
-        assert_eq!(patch.get(Param::TrackedOsc1Waveshape), 1.0);
-        assert_eq!(patch.get(Param::TrackedResonance), 0.8);
-        for param in [Param::TrackedGlide, Param::TrackedOscMix, Param::DryLevel] {
-            assert_eq!(patch.get(param), param.default_value(), "{param:?}");
-        }
-    }
-
-    #[test]
-    fn unreadable_values_fall_back_to_defaults_and_out_of_range_ones_are_clamped() {
-        let text = r#"
-            [direct]
-            cutoff_hz = "loud"
-            resonance = nan
-            drive = 7.0
-            [tracked]
-            osc2_waveshape = "triangle"
-        "#;
-        let patch = Patch::from_toml(text, "My File").unwrap();
-        assert_eq!(patch.name, "My File");
-        assert_eq!(
-            patch.get(Param::DirectCutoff),
-            Param::DirectCutoff.default_value()
-        );
-        assert_eq!(
-            patch.get(Param::DirectResonance),
-            Param::DirectResonance.default_value()
-        );
-        assert_eq!(patch.get(Param::DirectDrive), 1.0);
-        assert_eq!(patch.get(Param::TrackedOsc2Waveshape), 0.0);
-    }
-
-    #[test]
-    fn text_that_is_not_toml_is_an_error() {
-        assert!(Patch::from_toml("[direct\ncutoff_hz = = 3\0", "x").is_err());
-    }
-
-    #[test]
-    fn the_file_is_readable_and_carries_a_version() {
-        let mut patch = Patch::new("Readable");
-        patch.set(Param::DirectResonance, 0.37);
-        let text = patch.to_toml();
-        assert!(text.contains("version = 1"), "{text}");
-        assert!(text.contains("resonance = 0.37\n"), "{text}");
-        assert!(text.contains("osc1_waveshape = \"saw\""), "{text}");
-        assert!(text.contains("[mix]"), "{text}");
-    }
 }

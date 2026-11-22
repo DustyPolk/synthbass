@@ -7,6 +7,7 @@ mod direct;
 mod ladder;
 mod limiter;
 mod param;
+mod patch;
 mod readout;
 mod smoothed;
 mod tracked;
@@ -16,6 +17,7 @@ use direct::DirectLayer;
 pub use limiter::LIMITER_CEILING;
 use limiter::Limiter;
 pub use param::{Format, LEVEL_FLOOR_DB, Param, ParamInfo, Section, gain_to_db};
+pub use patch::{PATCH_VERSION, Patch};
 use readout::PeakMeter;
 pub use readout::{Readout, TunerReading};
 use smoothed::Smoothed;
@@ -88,6 +90,14 @@ impl Engine {
             | Param::TrackedGlide
             | Param::TrackedPickSensitivity
             | Param::TrackedLevel => self.tracked.set_param(param, value),
+        }
+    }
+
+    /// Sets every sound parameter to the patch's value, smoothed exactly as
+    /// the same values set one by one with `set_param`. Realtime-safe.
+    pub fn apply_patch(&mut self, patch: &Patch) {
+        for param in Param::ALL {
+            self.set_param(param, patch.get(param));
         }
     }
 

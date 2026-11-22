@@ -2,7 +2,6 @@
 
 mod audio;
 mod connection;
-mod patch;
 mod patch_panel;
 mod patches;
 mod ports;

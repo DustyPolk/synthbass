@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 
 use jack::{AudioIn, AudioOut, Client, ClientOptions, Control, ProcessScope};
 use rtrb::Producer;
-use synthbass_engine::{Engine, Param, Readout};
+use synthbass_engine::{Engine, Param, Patch, Readout};
 
 const CLIENT_NAME: &str = "synthbass";
 /// The engine's block size. Larger JACK periods are processed in chunks.
@@ -43,13 +43,31 @@ impl SoundParams {
     pub fn set(&self, param: Param, value: f32) {
         self.0[param.index()].store(value.to_bits(), Ordering::Relaxed);
     }
+
+    /// Every param of `patch`.
+    pub fn set_patch(&self, patch: &Patch) {
+        for param in Param::ALL {
+            self.set(param, patch.get(param));
+        }
+    }
+
+    /// Copies the shared values into `patch`. Realtime-safe.
+    fn load_into(&self, patch: &mut Patch) {
+        for (param, shared) in Param::ALL.into_iter().zip(&*self.0) {
+            patch.set(param, f32::from_bits(shared.load(Ordering::Relaxed)));
+        }
+    }
 }
 
-/// An engine and the shared values it has applied, so it applies only what
-/// changed. A new one applies everything on its first `sync`.
+/// An engine and the patch it last applied, so it applies one only when
+/// something changed. A new one applies the whole patch on its first `sync`.
 struct SyncedEngine {
     engine: Engine,
-    applied: [Option<u32>; Param::ALL.len()],
+    applied: Patch,
+    /// Scratch for reading the shared values; swapped with `applied`, so
+    /// syncing never allocates.
+    wanted: Patch,
+    fresh: bool,
     gate_applied: Option<u32>,
 }
 
@@ -57,19 +75,20 @@ impl SyncedEngine {
     fn new(sample_rate: f32) -> Self {
         SyncedEngine {
             engine: Engine::new(sample_rate, MAX_BLOCK),
-            applied: [None; Param::ALL.len()],
+            applied: Patch::new(""),
+            wanted: Patch::new(""),
+            fresh: true,
             gate_applied: None,
         }
     }
 
     /// Brings the engine up to date with the window. Realtime-safe.
     fn sync(&mut self, sound: &SoundParams, gate: &NoiseGate) {
-        for ((param, shared), applied) in Param::ALL.iter().zip(&*sound.0).zip(&mut self.applied) {
-            let bits = shared.load(Ordering::Relaxed);
-            if *applied != Some(bits) {
-                self.engine.set_param(*param, f32::from_bits(bits));
-                *applied = Some(bits);
-            }
+        sound.load_into(&mut self.wanted);
+        if self.fresh || self.wanted != self.applied {
+            self.engine.apply_patch(&self.wanted);
+            std::mem::swap(&mut self.wanted, &mut self.applied);
+            self.fresh = false;
         }
         let bits = gate.0.load(Ordering::Relaxed);
         if self.gate_applied != Some(bits) {
@@ -263,6 +282,20 @@ mod tests {
         let after = settled_peak(&mut engine, &sound, &gate);
         assert!(before > 0.2, "before {before}");
         assert!(after < 1e-6, "after {after}");
+    }
+
+    #[test]
+    fn a_whole_patch_reaches_the_running_engine() {
+        let sound = SoundParams::new();
+        let gate = NoiseGate::new(0.002);
+        let mut engine = SyncedEngine::new(RATE);
+        let before = settled_peak(&mut engine, &sound, &gate);
+        let mut patch = Patch::new("Half dry");
+        patch.set(Param::DryLevel, 0.5);
+        sound.set_patch(&patch);
+        let after = settled_peak(&mut engine, &sound, &gate);
+        assert!((before - 0.25).abs() < 0.005, "before {before}");
+        assert!((after - 0.125).abs() < 0.005, "after {after}");
     }
 
     #[test]
