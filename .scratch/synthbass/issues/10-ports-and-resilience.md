@@ -12,4 +12,5 @@
 - [ ] Clear in-window messages for: audio server unreachable, Scarlett not found, chosen port vanished
 - [ ] Unplug then replug the Scarlett: the app reconnects (automatically or via one click) without restart
 - [ ] Settings file under the user's config directory stores last-used ports; a missing or corrupt settings file falls back to defaults without crashing
+- [ ] The app requests a low PipeWire buffer (64–128 samples at 48 kHz, e.g. via the node latency property or `PIPEWIRE_LATENCY` before the JACK client opens) and the window shows the actual buffer size and resulting latency. Ticket 01 observed the graph running at 1024 samples.
 - [ ] Verified by hand: unplug/replug, minimise while playing, launch with the Scarlett absent
