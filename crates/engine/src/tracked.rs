@@ -194,10 +194,12 @@ impl TrackedLayer {
             };
             playing[slot] = Some(note);
         }
-        // Glide: a new voice slides in from the pitch of the voice that
-        // started before it, like a Moog playing a line legato. Not from one
-        // that started just now: notes picked together (a double stop)
-        // don't glide into each other.
+        // Glide: a new note slides in from the pitch of the voice that took
+        // the note before it, like a Moog playing a line legato. Not from one
+        // that took its note just now: notes picked together (a double stop)
+        // don't glide into each other. A voice that changes note (stolen, or
+        // reused while fading) follows the same rule, rather than gliding
+        // from its own old note.
         let glide_from = self
             .newest
             .filter(|_| self.glide > 0.0 && self.samples_since_newest >= self.glide_source_samples)
@@ -206,12 +208,13 @@ impl TrackedLayer {
         self.samples_since_newest = self.samples_since_newest.saturating_add(dry.len());
         for (i, (voice, note)) in self.voices.iter_mut().zip(playing).enumerate() {
             let starting = !voice.sounding && note.is_some();
+            let new_note = note.is_some_and(|note| voice.note_id != Some(note.id));
             if starting {
                 self.next_voice_id = self.next_voice_id.wrapping_add(1);
                 voice.id = self.next_voice_id;
             }
             voice.update(note, string_level);
-            if starting {
+            if new_note {
                 if let Some(pitch) = glide_from {
                     voice.glide_from(pitch);
                 }
@@ -377,9 +380,9 @@ impl Voice {
         match note {
             Some(note) => {
                 if self.sounding && self.note_id != Some(note.id) {
-                    // A new note on a sounding voice: jump to it, then
-                    // glide the distance from where the voice was.
-                    self.glide_offset += self.pitch - note.pitch;
+                    // A new note on a sounding voice: jump to it. Any glide
+                    // into it is the layer's to start.
+                    self.glide_offset = 0.0;
                     self.pitch = note.pitch;
                 }
                 if !self.sounding {
@@ -679,6 +682,32 @@ mod tests {
         play(&mut layer, &[note(1, 40.0)]);
         // Note 1 ends; its voice starts fading as note 2 arrives.
         assert_eq!(play(&mut layer, &[note(2, 45.0)]), [40.0, 45.0]);
+    }
+
+    #[test]
+    fn a_stolen_voice_glides_from_the_newest_voice_not_its_own_old_note() {
+        let mut layer = TrackedLayer::new(SAMPLE_RATE);
+        layer.set_param(Param::TrackedGlide, 0.1);
+        let quiet = loud_note(1, 40.0, 0.05);
+        hold(&mut layer, &[quiet], 0.3);
+        let chord = [
+            quiet,
+            loud_note(2, 44.0, 0.2),
+            loud_note(3, 47.0, 0.2),
+            loud_note(4, 52.0, 0.2),
+        ];
+        assert_eq!(hold(&mut layer, &chord, 0.6), [40.0, 44.0, 47.0, 52.0]);
+        // Note 5 takes the quietest note's voice. The newest voice plays 52,
+        // so that is where the glide starts, not at 40.
+        let mut five = chord.to_vec();
+        five.push(loud_note(5, 57.0, 0.3));
+        let pitches = play(&mut layer, &five);
+        assert_eq!(pitches[..3], [44.0, 47.0, 52.0], "{pitches:?}");
+        assert!(
+            (52.0..54.0).contains(&pitches[3]),
+            "the stolen voice starts its glide at {}",
+            pitches[3]
+        );
     }
 
     fn plucky() -> Sound {
