@@ -7,7 +7,7 @@ use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 
 use common::*;
-use synthbass_engine::Param;
+use synthbass_engine::{Param, Patch};
 
 struct CountingAllocator;
 
@@ -40,7 +40,7 @@ unsafe impl GlobalAlloc for CountingAllocator {
 static GLOBAL: CountingAllocator = CountingAllocator;
 
 #[test]
-fn processing_parameter_changes_and_readout_allocate_nothing() {
+fn processing_parameter_and_patch_changes_and_readout_allocate_nothing() {
     let mut engine = engine();
     engine.set_param(Param::DirectLevel, 1.0);
     engine.set_param(Param::TrackedLevel, 1.0);
@@ -52,6 +52,15 @@ fn processing_parameter_changes_and_readout_allocate_nothing() {
         .collect();
     let mut left = vec![0.0; MAX_BLOCK];
     let mut right = vec![0.0; MAX_BLOCK];
+    // Two patches to switch between mid-stream.
+    let mut bright = Patch::new("Bright");
+    bright.set(Param::TrackedCutoff, 4_000.0);
+    bright.set(Param::TrackedOsc2Octave, 1.0);
+    bright.set(Param::TrackedLevel, 1.0);
+    let mut dark = Patch::new("Dark");
+    dark.set(Param::TrackedCutoff, 100.0);
+    dark.set(Param::DirectLevel, 1.0);
+    let patches = [bright, dark];
 
     let mut notes_seen = false;
     let before = allocations();
@@ -60,6 +69,9 @@ fn processing_parameter_changes_and_readout_allocate_nothing() {
         engine.set_param(Param::DirectCutoff, 100.0 * (i + 1) as f32);
         engine.set_param(Param::TrackedOsc1Waveshape, (i % 2) as f32);
         engine.set_noise_gate(0.001 * i as f32);
+        if i % 3 == 0 {
+            engine.apply_patch(&patches[i / 3 % 2]);
+        }
         let n = block.len();
         engine.process(block, &mut left[..n], &mut right[..n]);
         let readout = std::hint::black_box(engine.readout());

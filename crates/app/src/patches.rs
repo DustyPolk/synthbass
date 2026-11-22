@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use crate::patch::Patch;
+use synthbass_engine::Patch;
 
 /// The built-in patch files. The first is what a first launch plays.
 const BUILT_IN: [(&str, &str); 6] = [

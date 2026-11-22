@@ -6,6 +6,8 @@ version.workspace = true
 publish.workspace = true
 
 [dependencies]
+# Only for the patch file text (`patch.rs`).
+toml = "1"
 
 [dev-dependencies]
 hound = "3.5"

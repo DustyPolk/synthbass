@@ -3,9 +3,9 @@
 
 use eframe::egui;
 
-use crate::patch::Patch;
 use crate::patches::PatchLibrary;
 use crate::settings;
+use synthbass_engine::Patch;
 
 pub struct PatchPanel {
     library: PatchLibrary,
