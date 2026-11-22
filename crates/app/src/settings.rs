@@ -11,7 +11,7 @@ use crate::ports::Routing;
 
 /// Everything in the settings file. Every field has a default, so a file
 /// missing newer fields still loads: add new fields the same way.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     pub ports: Routing,
@@ -21,16 +21,6 @@ pub struct Settings {
     /// not the sound.
     #[serde(with = "noise_gate_field")]
     pub noise_gate: NoiseGate,
-}
-
-impl Default for Settings {
-    fn default() -> Self {
-        Settings {
-            ports: Routing::default(),
-            last_patch: None,
-            noise_gate: NoiseGate::default(),
-        }
-    }
 }
 
 /// The settings file shared by everyone who changes it (the connection
