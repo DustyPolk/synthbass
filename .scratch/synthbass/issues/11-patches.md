@@ -8,9 +8,9 @@
 
 **Context budget:** finish within one fresh context, well under 150K tokens. Read `GLOSSARY.md`, the spec, and the relevant ADRs; skip anything unrelated. Keep test and build output terse (filter to failures).
 
-- [ ] Patch record covers every sound parameter and carries a version; missing or unknown fields fall back to defaults
-- [ ] Tests: save then load round-trips every parameter; every built-in patch loads; a corrupt file is reported and skipped without panicking; a file missing newer fields loads with defaults; built-in patches cannot be overwritten or deleted
-- [ ] Picker lists built-in and user patches; save, save-as, delete work; unsaved-changes marker appears after any tweak
-- [ ] Last-used patch and noise gate threshold persist across launches; first launch falls back to a built-in default
-- [ ] About six built-in patches covering classic Moog-style sounds (e.g. pluck, fat sub, squelchy resonant, detuned saw, soft round, octave-up lead)
+- [x] Patch record covers every sound parameter and carries a version; missing or unknown fields fall back to defaults
+- [x] Tests: save then load round-trips every parameter; every built-in patch loads; a corrupt file is reported and skipped without panicking; a file missing newer fields loads with defaults; built-in patches cannot be overwritten or deleted
+- [x] Picker lists built-in and user patches; save, save-as, delete work; unsaved-changes marker appears after any tweak
+- [x] Last-used patch and noise gate threshold persist across launches; first launch falls back to a built-in default
+- [x] About six built-in patches covering classic Moog-style sounds (e.g. pluck, fat sub, squelchy resonant, detuned saw, soft round, octave-up lead)
 - [ ] Verified by playing each built-in patch
