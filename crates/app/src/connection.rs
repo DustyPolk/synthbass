@@ -1,6 +1,7 @@
 //! Keeps the app connected. A supervisor thread owns the JACK client, opens
-//! it (retrying while the server is unreachable), follows the chosen ports as
-//! they come and go, and publishes a `View` for the window.
+//! it (retrying while the server is unreachable), reopens it when the graph's
+//! sample rate changes, follows the chosen ports as they come and go, and
+//! publishes a `View` for the window.
 //!
 //! It runs apart from the UI thread, so reconnecting works while the window
 //! is minimised or busy, and the UI never waits on JACK.
@@ -12,7 +13,7 @@ use std::time::Duration;
 
 use jack::{AudioIn, Client, LatencyType, PortFlags, PortSpec};
 
-use crate::audio::{self, ActiveClient, AudioParts, OwnPorts};
+use crate::audio::{self, AudioParts, Opened, OwnPorts};
 use crate::ports::{Health, PortLists, Routing, Slot};
 use crate::settings;
 
@@ -125,13 +126,18 @@ impl jack::NotificationHandler for Notifier {
         let _ = self.tx.send(Command::GraphChanged);
     }
 
+    fn sample_rate(&mut self, _: &Client, _: jack::Frames) -> jack::Control {
+        let _ = self.tx.send(Command::GraphChanged);
+        jack::Control::Continue
+    }
+
     unsafe fn shutdown(&mut self, _: jack::ClientStatus, _: &str) {
         let _ = self.tx.send(Command::ServerShutdown);
     }
 }
 
 struct Supervisor {
-    client: Option<(ActiveClient<Notifier>, OwnPorts)>,
+    client: Option<Opened<Notifier>>,
     /// Ring ends waiting for a client; `None` while a client holds them.
     parts: Option<AudioParts>,
     /// `None` until the first successful open picks the launch routing.
@@ -156,10 +162,23 @@ impl Supervisor {
     }
 
     fn tick(&mut self) {
+        if self
+            .client
+            .as_ref()
+            .is_some_and(|opened| opened.client.as_client().sample_rate() != opened.sample_rate)
+        {
+            // The engine's oscillators and filters are tuned for the old
+            // rate; a new client gets an engine built for the new one, and
+            // the shared sound params bring it up to the current patch.
+            self.drop_client();
+        }
         if self.client.is_none() && !self.open() {
             return;
         }
-        let Some((client, own)) = &self.client else {
+        let Some(Opened {
+            client, ports: own, ..
+        }) = &self.client
+        else {
             return;
         };
         let client = client.as_client();
@@ -217,8 +236,8 @@ impl Supervisor {
     }
 
     fn drop_client(&mut self) {
-        if let Some((client, _)) = self.client.take() {
-            self.parts = audio::close(client);
+        if let Some(opened) = self.client.take() {
+            self.parts = audio::close(opened.client);
         }
     }
 
@@ -226,9 +245,9 @@ impl Supervisor {
         let routing = self
             .routing
             .get_or_insert_with(|| self.settings.get().ports);
-        if let (Some((client, own)), Some(old)) = (&self.client, routing.get(slot)) {
-            let (src, dst) = link(slot, own, old);
-            let _ = client.as_client().disconnect_ports_by_name(src, dst);
+        if let (Some(opened), Some(old)) = (&self.client, routing.get(slot)) {
+            let (src, dst) = link(slot, &opened.ports, old);
+            let _ = opened.client.as_client().disconnect_ports_by_name(src, dst);
         }
         routing.set(slot, port);
         let routing = routing.clone();

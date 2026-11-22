@@ -5,10 +5,10 @@
 use std::time::Duration;
 
 use eframe::egui;
-use rtrb::{Consumer, Producer};
+use rtrb::Consumer;
 use synthbass_engine::{MAX_VOICES, NOISE_GATE_RANGE, Param, Readout, TunerReading};
 
-use crate::audio::NoiseGate;
+use crate::audio::{NoiseGate, SoundParams};
 use crate::connection::Connection;
 use crate::patch::Patch;
 use crate::patch_panel::PatchPanel;
@@ -19,7 +19,7 @@ use crate::{ports_panel, settings};
 const METER_FLOOR_DB: f32 = -60.0;
 
 pub struct SynthbassApp {
-    params: Producer<(Param, f32)>,
+    sound: SoundParams,
     readouts: Consumer<Readout>,
     readout: Readout,
     connection: Connection,
@@ -34,7 +34,7 @@ pub struct SynthbassApp {
 
 impl SynthbassApp {
     pub fn new(
-        params: Producer<(Param, f32)>,
+        sound: SoundParams,
         readouts: Consumer<Readout>,
         connection: Connection,
         noise_gate: NoiseGate,
@@ -43,7 +43,7 @@ impl SynthbassApp {
     ) -> Self {
         let (patches, patch) = PatchPanel::new(library, settings.clone());
         let mut app = SynthbassApp {
-            params,
+            sound,
             readouts,
             readout: Readout::default(),
             connection,
@@ -157,9 +157,7 @@ impl SynthbassApp {
     }
 
     fn send(&mut self, param: Param) {
-        // The audio thread drains this every period, so the ring only fills
-        // if audio has stopped; then there is nobody to tell.
-        let _ = self.params.push((param, self.current.get(param)));
+        self.sound.set(param, self.current.get(param));
     }
 
     /// Saw / square switch for a waveshape param.

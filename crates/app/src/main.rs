@@ -25,17 +25,17 @@ fn main() -> eframe::Result {
         unsafe { std::env::set_var("PIPEWIRE_LATENCY", REQUESTED_LATENCY) };
     }
 
-    let (param_tx, param_rx) = RingBuffer::new(256);
     let (readout_tx, readout_rx) = RingBuffer::new(64);
 
     let (settings, settings_warning) = settings::Store::open(settings::default_path());
     let noise_gate = audio::NoiseGate::new(settings.get().noise_gate);
+    let sound = audio::SoundParams::new();
     let library = patches::PatchLibrary::open(patches::default_dir());
 
     // Held for the life of the window; dropping it stops audio.
     let connection = connection::Connection::start(
         audio::AudioParts {
-            params: param_rx,
+            sound: sound.clone(),
             readouts: readout_tx,
             noise_gate: noise_gate.clone(),
         },
@@ -53,7 +53,7 @@ fn main() -> eframe::Result {
         Box::new(|cc| {
             cc.egui_ctx.set_theme(egui::Theme::Dark);
             Ok(Box::new(ui::SynthbassApp::new(
-                param_tx, readout_rx, connection, noise_gate, settings, library,
+                sound, readout_rx, connection, noise_gate, settings, library,
             )))
         }),
     )
