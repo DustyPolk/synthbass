@@ -2,6 +2,9 @@
 
 mod audio;
 mod connection;
+mod patch;
+mod patch_panel;
+mod patches;
 mod ports;
 mod ports_panel;
 mod settings;
@@ -25,14 +28,20 @@ fn main() -> eframe::Result {
     let (param_tx, param_rx) = RingBuffer::new(256);
     let (readout_tx, readout_rx) = RingBuffer::new(64);
 
-    let noise_gate = audio::NoiseGate::new(synthbass_engine::NOISE_GATE_DEFAULT);
+    let (settings, settings_warning) = settings::Store::open(settings::default_path());
+    let noise_gate = audio::NoiseGate::new(settings.get().noise_gate);
+    let library = patches::PatchLibrary::open(patches::default_dir());
 
     // Held for the life of the window; dropping it stops audio.
-    let connection = connection::Connection::start(audio::AudioParts {
-        params: param_rx,
-        readouts: readout_tx,
-        noise_gate: noise_gate.clone(),
-    });
+    let connection = connection::Connection::start(
+        audio::AudioParts {
+            params: param_rx,
+            readouts: readout_tx,
+            noise_gate: noise_gate.clone(),
+        },
+        settings.clone(),
+        settings_warning,
+    );
 
     let options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default().with_inner_size([480.0, 640.0]),
@@ -44,7 +53,7 @@ fn main() -> eframe::Result {
         Box::new(|cc| {
             cc.egui_ctx.set_theme(egui::Theme::Dark);
             Ok(Box::new(ui::SynthbassApp::new(
-                param_tx, readout_rx, connection, noise_gate,
+                param_tx, readout_rx, connection, noise_gate, settings, library,
             )))
         }),
     )

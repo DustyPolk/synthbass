@@ -1,7 +1,7 @@
-//! The window: tuner, input meter and noise gate, direct layer, tracked
-//! layer with its active voices, mix knobs, and connection section.
+//! The window: patch section, tuner, input meter and noise gate, direct
+//! layer, tracked layer with its active voices, mix knobs, and connection
+//! section.
 
-use std::collections::HashMap;
 use std::time::Duration;
 
 use eframe::egui;
@@ -10,7 +10,10 @@ use synthbass_engine::{MAX_VOICES, NOISE_GATE_RANGE, Param, Readout, TunerReadin
 
 use crate::audio::NoiseGate;
 use crate::connection::Connection;
-use crate::ports_panel;
+use crate::patch::Patch;
+use crate::patch_panel::PatchPanel;
+use crate::patches::PatchLibrary;
+use crate::{ports_panel, settings};
 
 /// Meter floor; anything quieter shows as an empty bar.
 const METER_FLOOR_DB: f32 = -60.0;
@@ -20,10 +23,13 @@ pub struct SynthbassApp {
     readouts: Consumer<Readout>,
     readout: Readout,
     connection: Connection,
-    /// The window's copy of every param, as last sent to the engine.
-    values: HashMap<Param, f32>,
+    /// Every sound param as last sent to the engine, named after the patch
+    /// it came from.
+    current: Patch,
+    patches: PatchPanel,
     noise_gate: NoiseGate,
     gate_threshold: f32,
+    settings: settings::Store,
 }
 
 impl SynthbassApp {
@@ -32,18 +38,30 @@ impl SynthbassApp {
         readouts: Consumer<Readout>,
         connection: Connection,
         noise_gate: NoiseGate,
+        settings: settings::Store,
+        library: PatchLibrary,
     ) -> Self {
-        SynthbassApp {
+        let (patches, patch) = PatchPanel::new(library, settings.clone());
+        let mut app = SynthbassApp {
             params,
             readouts,
             readout: Readout::default(),
             connection,
-            values: Param::ALL
-                .iter()
-                .map(|&param| (param, param.default_value()))
-                .collect(),
+            current: patch.clone(),
+            patches,
             gate_threshold: noise_gate.get(),
             noise_gate,
+            settings,
+        };
+        app.play(patch);
+        app
+    }
+
+    /// Makes `patch` the current sound and sends all of it to the engine.
+    fn play(&mut self, patch: Patch) {
+        self.current = patch;
+        for param in Param::ALL {
+            self.send(param);
         }
     }
 
@@ -80,17 +98,21 @@ impl SynthbassApp {
             .logarithmic(true)
             .text("Noise gate")
             .custom_formatter(|gain, _| format_db(gain as f32));
-        if ui.add(slider).changed() {
+        let response = ui.add(slider);
+        if response.changed() {
             self.noise_gate.set(self.gate_threshold);
+        }
+        // Save once a drag ends rather than on every frame of it.
+        if response.drag_stopped() || (response.changed() && !response.dragged()) {
+            let threshold = self.gate_threshold;
+            // A failed save only costs the threshold at the next launch.
+            let _ = self.settings.update(|s| s.noise_gate = threshold);
         }
     }
 
     fn knob(&mut self, ui: &mut egui::Ui, param: Param, label: &str) {
-        let value = self
-            .values
-            .get_mut(&param)
-            .expect("every param has a value");
-        let slider = egui::Slider::new(value, param.range()).text(label);
+        let mut value = self.current.get(param);
+        let slider = egui::Slider::new(&mut value, param.range()).text(label);
         let slider = match param {
             Param::DryLevel | Param::OutputLevel | Param::DirectLevel | Param::TrackedLevel => {
                 slider.custom_formatter(|gain, _| format_db(gain as f32))
@@ -125,49 +147,48 @@ impl SynthbassApp {
             }
         };
         if ui.add(slider).changed() {
-            self.send(param);
+            self.change(param, value);
         }
+    }
+
+    fn change(&mut self, param: Param, value: f32) {
+        self.current.set(param, value);
+        self.send(param);
     }
 
     fn send(&mut self, param: Param) {
         // The audio thread drains this every period, so the ring only fills
         // if audio has stopped; then there is nobody to tell.
-        let _ = self.params.push((param, self.values[&param]));
+        let _ = self.params.push((param, self.current.get(param)));
     }
 
     /// Saw / square switch for a waveshape param.
     fn waveshape(&mut self, ui: &mut egui::Ui, param: Param, label: &str) {
-        let value = self
-            .values
-            .get_mut(&param)
-            .expect("every param has a value");
-        let before = *value;
+        let before = self.current.get(param);
+        let mut value = before;
         ui.horizontal(|ui| {
             for shape in [0.0, 1.0] {
-                ui.selectable_value(value, shape, waveshape_name(shape));
+                ui.selectable_value(&mut value, shape, waveshape_name(shape));
             }
             ui.label(label);
         });
-        if *value != before {
-            self.send(param);
+        if value != before {
+            self.change(param, value);
         }
     }
 
     /// −1 / 0 / +1 octave switch.
     fn octave(&mut self, ui: &mut egui::Ui, param: Param, label: &str) {
-        let value = self
-            .values
-            .get_mut(&param)
-            .expect("every param has a value");
-        let before = *value;
+        let before = self.current.get(param);
+        let mut value = before;
         ui.horizontal(|ui| {
             for (octave, name) in [(-1.0, "−1"), (0.0, "0"), (1.0, "+1")] {
-                ui.selectable_value(value, octave, name);
+                ui.selectable_value(&mut value, octave, name);
             }
             ui.label(label);
         });
-        if *value != before {
-            self.send(param);
+        if value != before {
+            self.change(param, value);
         }
     }
 
@@ -204,6 +225,11 @@ impl eframe::App for SynthbassApp {
             // The window can be shorter than everything in it.
             egui::ScrollArea::vertical().show(ui, |ui| {
                 ui.heading("Synthbass");
+                ui.add_space(8.0);
+
+                if let Some(patch) = self.patches.show(ui, &mut self.current) {
+                    self.play(patch);
+                }
                 ui.add_space(8.0);
 
                 self.tuner(ui);

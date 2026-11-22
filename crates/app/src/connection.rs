@@ -5,7 +5,6 @@
 //! It runs apart from the UI thread, so reconnecting works while the window
 //! is minimised or busy, and the UI never waits on JACK.
 
-use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
@@ -15,7 +14,7 @@ use jack::{AudioIn, Client, LatencyType, PortFlags, PortSpec};
 
 use crate::audio::{self, ActiveClient, AudioParts, OwnPorts};
 use crate::ports::{Health, PortLists, Routing, Slot};
-use crate::settings::{self, Settings};
+use crate::settings;
 
 /// How often the supervisor re-checks the graph without being woken.
 const POLL: Duration = Duration::from_secs(1);
@@ -66,24 +65,26 @@ pub struct Connection {
 }
 
 impl Connection {
-    pub fn start(parts: AudioParts) -> Connection {
-        let view = Arc::new(Mutex::new(View::default()));
+    /// `notice` is shown until something newer replaces it, e.g. a problem
+    /// reading the settings file.
+    pub fn start(
+        parts: AudioParts,
+        settings: settings::Store,
+        notice: Option<String>,
+    ) -> Connection {
+        let view = Arc::new(Mutex::new(View {
+            notice,
+            ..View::default()
+        }));
         let (commands, inbox) = mpsc::channel();
-        let path = settings::default_path();
-        let loaded = path.as_deref().map(Settings::load);
         let supervisor = Supervisor {
             client: None,
             parts: Some(parts),
             routing: None,
-            settings: loaded
-                .as_ref()
-                .map(|l| l.settings.clone())
-                .unwrap_or_default(),
-            settings_path: path,
+            settings,
             view: view.clone(),
             notifier_tx: commands.clone(),
         };
-        view.lock().unwrap().notice = loaded.and_then(|l| l.warning);
         let thread = std::thread::Builder::new()
             .name("synthbass-connection".into())
             .spawn(move || supervisor.run(inbox))
@@ -135,8 +136,7 @@ struct Supervisor {
     parts: Option<AudioParts>,
     /// `None` until the first successful open picks the launch routing.
     routing: Option<Routing>,
-    settings: Settings,
-    settings_path: Option<PathBuf>,
+    settings: settings::Store,
     view: Arc<Mutex<View>>,
     notifier_tx: Sender<Command>,
 }
@@ -166,7 +166,7 @@ impl Supervisor {
         let ports = list_ports(client);
         let routing = self
             .routing
-            .get_or_insert_with(|| Routing::at_launch(&self.settings.ports, &ports));
+            .get_or_insert_with(|| Routing::at_launch(&self.settings.get().ports, &ports));
         routing.adopt_defaults(&ports);
         for slot in Slot::ALL {
             if let Some(target) = routing
@@ -225,16 +225,14 @@ impl Supervisor {
     fn choose(&mut self, slot: Slot, port: Option<String>) {
         let routing = self
             .routing
-            .get_or_insert_with(|| self.settings.ports.clone());
+            .get_or_insert_with(|| self.settings.get().ports);
         if let (Some((client, own)), Some(old)) = (&self.client, routing.get(slot)) {
             let (src, dst) = link(slot, own, old);
             let _ = client.as_client().disconnect_ports_by_name(src, dst);
         }
         routing.set(slot, port);
-        self.settings.ports = routing.clone();
-        if let Some(path) = &self.settings_path
-            && let Err(err) = self.settings.save(path)
-        {
+        let routing = routing.clone();
+        if let Err(err) = self.settings.update(|s| s.ports = routing) {
             self.view.lock().unwrap().notice = Some(format!("Could not save settings: {err}"));
         }
     }

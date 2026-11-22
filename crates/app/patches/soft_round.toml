@@ -1,0 +1,30 @@
+# Soft and round: a square and sub through a nearly closed filter, little
+# envelope, a touch of glide. Sits under a mix like a fingerstyle synth.
+version = 1
+name = "Soft Round"
+
+[direct]
+drive = 0.2
+cutoff_hz = 150.0
+resonance = 0.0
+envelope_sensitivity = 0.15
+level = 0.3
+
+[tracked]
+osc1_waveshape = "square"
+osc2_waveshape = "saw"
+osc2_octave = 0
+osc2_detune_cents = 0.0
+osc_mix = 0.0
+sub_level = 0.5
+cutoff_hz = 120.0
+resonance = 0.1
+filter_envelope_amount = 0.15
+filter_envelope_decay_s = 0.6
+pick_sensitivity = 0.3
+glide_s = 0.03
+level = 0.9
+
+[mix]
+dry_level = 0.2
+output_level = 1.0

@@ -1,0 +1,30 @@
+# The classic Moog bass pluck: a dark saw the filter envelope opens on each
+# pick, harder picks opening it further.
+version = 1
+name = "Pluck"
+
+[direct]
+drive = 0.4
+cutoff_hz = 350.0
+resonance = 0.3
+envelope_sensitivity = 0.6
+level = 0.35
+
+[tracked]
+osc1_waveshape = "saw"
+osc2_waveshape = "saw"
+osc2_octave = 0
+osc2_detune_cents = 0.0
+osc_mix = 0.0
+sub_level = 0.3
+cutoff_hz = 250.0
+resonance = 0.35
+filter_envelope_amount = 0.7
+filter_envelope_decay_s = 0.25
+pick_sensitivity = 0.6
+glide_s = 0.0
+level = 0.8
+
+[mix]
+dry_level = 0.25
+output_level = 1.0
