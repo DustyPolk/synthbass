@@ -398,6 +398,80 @@ mod tests {
         }
     }
 
+    /// Oscillator 2's own settings, as opposed to how much of it is heard.
+    const OSCILLATOR_2: [Param; 3] = [
+        Param::TrackedOsc2Waveshape,
+        Param::TrackedOsc2Octave,
+        Param::TrackedOsc2Detune,
+    ];
+
+    /// The patch's tracked layer alone, for a plucked note at `freq` Hz.
+    fn tracked_layer(patch: &Patch, freq: f32) -> Vec<f32> {
+        const SAMPLE_RATE: f32 = 48_000.0;
+        let dry: Vec<f32> = (0..(0.8 * SAMPLE_RATE) as usize)
+            .map(|n| {
+                let t = n as f32 / SAMPLE_RATE;
+                let harmonics: f32 = (1..=6)
+                    .map(|h| (std::f32::consts::TAU * freq * h as f32 * t).sin() / h as f32)
+                    .sum();
+                0.3 * harmonics * (-t / 1.5).exp()
+            })
+            .collect();
+        let mut patch = patch.clone();
+        patch.set(Param::DryLevel, 0.0);
+        patch.set(Param::DirectLevel, 0.0);
+        let mut engine = synthbass_engine::Engine::new(SAMPLE_RATE, 128);
+        engine.apply_patch(&patch);
+        let mut left = vec![0.0; dry.len()];
+        let mut right = vec![0.0; dry.len()];
+        for ((d, l), r) in dry
+            .chunks(128)
+            .zip(left.chunks_mut(128))
+            .zip(right.chunks_mut(128))
+        {
+            engine.process(d, l, r);
+        }
+        left
+    }
+
+    fn rms(signal: &[f32]) -> f32 {
+        (signal.iter().map(|s| s * s).sum::<f32>() / signal.len() as f32).sqrt()
+    }
+
+    /// A built-in that gives oscillator 2 a waveshape, octave or detune
+    /// mixes it in enough to hear them: putting them back to their defaults
+    /// changes the tracked layer by at least a tenth of its energy (−10 dB).
+    #[test]
+    fn every_built_in_that_sets_oscillator_2_can_be_heard_using_it() {
+        let library = PatchLibrary::open(None);
+        let setting_oscillator_2: Vec<&Patch> = library
+            .built_in()
+            .iter()
+            .filter(|p| OSCILLATOR_2.iter().any(|&q| p.get(q) != q.default_value()))
+            .collect();
+        assert!(!setting_oscillator_2.is_empty());
+        for patch in setting_oscillator_2 {
+            let mut plain = patch.clone();
+            for param in OSCILLATOR_2 {
+                plain.set(param, param.default_value());
+            }
+            for freq in [55.0, 110.0] {
+                let set = tracked_layer(patch, freq);
+                let change: Vec<f32> = set
+                    .iter()
+                    .zip(tracked_layer(&plain, freq))
+                    .map(|(a, b)| a - b)
+                    .collect();
+                let db = 20.0 * (rms(&change) / rms(&set)).log10();
+                assert!(
+                    db > -10.0,
+                    "{} at {freq} Hz: oscillator 2's settings change it by {db:.1} dB",
+                    patch.name
+                );
+            }
+        }
+    }
+
     #[test]
     fn every_built_in_file_spells_out_every_parameter() {
         // A misspelt or missing key would silently play the default.

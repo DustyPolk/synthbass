@@ -130,6 +130,8 @@ impl Param {
                 50.0,
                 0.0,
             ),
+            // An even blend, so oscillator 2's waveshape, octave and detune
+            // are heard without first finding this knob.
             Param::TrackedOscMix => (
                 Tracked,
                 "osc_mix",
@@ -137,7 +139,7 @@ impl Param {
                 Amount,
                 0.0,
                 1.0,
-                0.0,
+                0.5,
             ),
             Param::TrackedSubLevel => (
                 Tracked,
