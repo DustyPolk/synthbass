@@ -41,15 +41,8 @@ impl SoundParams {
     }
 
     pub fn set(&self, param: Param, value: f32) {
-        self.0[index(param)].store(value.to_bits(), Ordering::Relaxed);
+        self.0[param.index()].store(value.to_bits(), Ordering::Relaxed);
     }
-}
-
-fn index(param: Param) -> usize {
-    Param::ALL
-        .iter()
-        .position(|&p| p == param)
-        .expect("Param::ALL lists every param")
 }
 
 /// An engine and the shared values it has applied, so it applies only what
