@@ -8,8 +8,8 @@
 
 **Context budget:** finish within one fresh context, well under 150K tokens. Read `GLOSSARY.md`, the spec, and the relevant ADRs; skip anything unrelated. Keep test and build output terse (filter to failures).
 
-- [ ] Readout includes a tuner reading (note, cents, or none) and the list of detected notes with pitch and level
-- [ ] Noise gate threshold is set on the engine separately from sound parameters
-- [ ] Offline tests with synthetic tones (with harmonics, bass-like decay): every semitone from low E to the top of the G string is detected within a few cents; detection latency on low E is within the physical bound (about two periods) plus a small margin; nothing below the gate is detected; silence gives no tuner reading
-- [ ] Processing path stays allocation-free
+- [x] Readout includes a tuner reading (note, cents, or none) and the list of detected notes with pitch and level
+- [x] Noise gate threshold is set on the engine separately from sound parameters
+- [x] Offline tests with synthetic tones (with harmonics, bass-like decay): every semitone from low E to the top of the G string is detected within a few cents; detection latency on low E is within the physical bound (about two periods) plus a small margin; nothing below the gate is detected; silence gives no tuner reading
+- [x] Processing path stays allocation-free
 - [ ] Verified by playing: the tuner reads open strings correctly
