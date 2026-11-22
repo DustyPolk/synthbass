@@ -9,6 +9,7 @@ mod limiter;
 mod param;
 mod readout;
 mod smoothed;
+mod tracked;
 mod tracker;
 
 use direct::DirectLayer;
@@ -19,13 +20,15 @@ pub use param::Param;
 use readout::PeakMeter;
 pub use readout::{Readout, TunerReading};
 use smoothed::Smoothed;
+use tracked::TrackedLayer;
+pub use tracked::{MAX_VOICES, VoiceReading, Voices};
 use tracker::Tracker;
 pub use tracker::{
     DetectedNote, DetectedNotes, MAX_DETECTED_NOTES, NOISE_GATE_DEFAULT, NOISE_GATE_RANGE,
 };
 
-/// Signal chain: dry signal → (dry signal level + direct layer) → output
-/// level → hard limiter → outputs 1/2 (dual mono).
+/// Signal chain: dry signal → (dry signal level + direct layer + tracked
+/// layer) → output level → hard limiter → outputs 1/2 (dual mono).
 pub struct Engine {
     max_block_size: usize,
     dry_level: Smoothed,
@@ -34,7 +37,12 @@ pub struct Engine {
     limiter: Limiter,
     input_meter: PeakMeter,
     tracker: Tracker,
+    tracked: TrackedLayer,
 }
+
+/// Voices pick up what the tracker hears this often (in samples), so a note
+/// starts close to when it is detected whatever the block size.
+const VOICE_UPDATE_SAMPLES: usize = 32;
 
 impl Engine {
     /// All memory the engine needs is sized here; `process` accepts any block
@@ -48,6 +56,7 @@ impl Engine {
             limiter: Limiter::new(sample_rate),
             input_meter: PeakMeter::new(sample_rate),
             tracker: Tracker::new(sample_rate),
+            tracked: TrackedLayer::new(sample_rate),
         }
     }
 
@@ -62,6 +71,9 @@ impl Engine {
             | Param::DirectResonance
             | Param::DirectEnvelopeSensitivity
             | Param::DirectLevel => self.direct.set_param(param, value),
+            Param::TrackedOsc1Waveshape | Param::TrackedLevel => {
+                self.tracked.set_param(param, value)
+            }
         }
     }
 
@@ -70,6 +82,7 @@ impl Engine {
     /// patches never changes how the app copes with room noise.
     pub fn set_noise_gate(&mut self, threshold: f32) {
         self.tracker.set_gate(threshold);
+        self.tracked.set_gate(threshold);
     }
 
     /// Processes one block of mono dry signal into the two output blocks.
@@ -83,13 +96,20 @@ impl Engine {
             left.len() == dry.len() && right.len() == dry.len(),
             "block length mismatch"
         );
-        self.tracker.process(dry);
-        for ((&d, l), r) in dry.iter().zip(left.iter_mut()).zip(right.iter_mut()) {
-            self.input_meter.process(d);
-            let mix = d * self.dry_level.next() + self.direct.process(d);
-            let out = self.limiter.process(mix * self.output_level.next());
-            *l = out;
-            *r = out;
+        let chunks = dry
+            .chunks(VOICE_UPDATE_SAMPLES)
+            .zip(left.chunks_mut(VOICE_UPDATE_SAMPLES))
+            .zip(right.chunks_mut(VOICE_UPDATE_SAMPLES));
+        for ((dry, left), right) in chunks {
+            self.tracker.process(dry);
+            self.tracked.update(&self.tracker.notes(), dry);
+            for ((&d, l), r) in dry.iter().zip(left.iter_mut()).zip(right.iter_mut()) {
+                self.input_meter.process(d);
+                let mix = d * self.dry_level.next() + self.direct.process(d) + self.tracked.process();
+                let out = self.limiter.process(mix * self.output_level.next());
+                *l = out;
+                *r = out;
+            }
         }
     }
 
@@ -98,6 +118,7 @@ impl Engine {
             input_level: self.input_meter.level(),
             tuner: self.tracker.tuner(),
             notes: self.tracker.notes(),
+            voices: self.tracked.voices(),
         }
     }
 }

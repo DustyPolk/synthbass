@@ -8,6 +8,7 @@ pub struct Smoothed {
 
 /// Time to cover ~63% of a change.
 const TIME_CONSTANT_SECONDS: f32 = 0.01;
+const SNAP: f32 = 1e-9;
 
 impl Smoothed {
     pub fn new(value: f32, sample_rate: f32) -> Self {
@@ -24,6 +25,12 @@ impl Smoothed {
 
     pub fn next(&mut self) -> f32 {
         self.current = self.target + (self.current - self.target) * self.coefficient;
+        // Snap once inaudibly close: otherwise the gap shrinks into
+        // subnormals (slow) and can stick at the smallest one, leaving a
+        // level of "zero" that still leaks signal.
+        if (self.current - self.target).abs() < SNAP {
+            self.current = self.target;
+        }
         self.current
     }
 }

@@ -1,3 +1,4 @@
+use crate::tracked::Voices;
 use crate::tracker::DetectedNotes;
 
 /// A snapshot of what the engine hears, for the window to show and tests to
@@ -12,6 +13,8 @@ pub struct Readout {
     pub tuner: Option<TunerReading>,
     /// Every note the tracker hears right now.
     pub notes: DetectedNotes,
+    /// The tracked layer's sounding voices.
+    pub voices: Voices,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

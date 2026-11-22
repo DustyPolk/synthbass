@@ -1,7 +1,8 @@
 use std::ops::RangeInclusive;
 
 /// A sound parameter the engine accepts changes to. Levels are linear gains;
-/// drive, resonance and envelope sensitivity are 0..=1; cutoff is in Hz.
+/// drive, resonance and envelope sensitivity are 0..=1; cutoff is in Hz;
+/// a waveshape is 0 (saw) or 1 (square).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Param {
     DryLevel,
@@ -11,10 +12,12 @@ pub enum Param {
     DirectResonance,
     DirectEnvelopeSensitivity,
     DirectLevel,
+    TrackedOsc1Waveshape,
+    TrackedLevel,
 }
 
 impl Param {
-    pub const ALL: [Param; 7] = [
+    pub const ALL: [Param; 9] = [
         Param::DryLevel,
         Param::OutputLevel,
         Param::DirectDrive,
@@ -22,6 +25,8 @@ impl Param {
         Param::DirectResonance,
         Param::DirectEnvelopeSensitivity,
         Param::DirectLevel,
+        Param::TrackedOsc1Waveshape,
+        Param::TrackedLevel,
     ];
 
     pub fn range(self) -> RangeInclusive<f32> {
@@ -35,6 +40,8 @@ impl Param {
             Param::DirectResonance => 0.0..=1.0,
             Param::DirectEnvelopeSensitivity => 0.0..=1.0,
             Param::DirectLevel => 0.0..=1.0,
+            Param::TrackedOsc1Waveshape => 0.0..=1.0,
+            Param::TrackedLevel => 0.0..=1.0,
         }
     }
 
@@ -49,6 +56,9 @@ impl Param {
             // Off until turned up (or a patch sets it), so the dry signal
             // alone is what a fresh engine plays.
             Param::DirectLevel => 0.0,
+            Param::TrackedOsc1Waveshape => 0.0,
+            // Off until turned up, like the direct layer.
+            Param::TrackedLevel => 0.0,
         }
     }
 

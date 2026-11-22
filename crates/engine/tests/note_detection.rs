@@ -14,45 +14,6 @@ fn silence_gives_no_tuner_reading_and_no_notes() {
     assert!(readout.notes.is_empty());
 }
 
-/// MIDI note number to frequency in Hz.
-fn hz(note: f32) -> f32 {
-    440.0 * 2f32.powf((note - 69.0) / 12.0)
-}
-
-/// A plucked-bass-like tone: eight harmonics at 1/h amplitude with fixed
-/// pseudo-random phases, decaying exponentially, scaled so the first peak
-/// is close to `amplitude`. `fundamental` scales the first harmonic (real
-/// basses often have a weak fundamental).
-fn bass_tone(freq: f32, amplitude: f32, fundamental: f32, seconds: f32) -> Vec<f32> {
-    let mut seed = 0x2545_f491_u32;
-    let phases: Vec<f32> = (0..8)
-        .map(|_| {
-            seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
-            (seed >> 8) as f32 / (1 << 24) as f32 * std::f32::consts::TAU
-        })
-        .collect();
-    let gains: Vec<f32> = (1..=8)
-        .map(|h| if h == 1 { fundamental } else { 1.0 / h as f32 })
-        .collect();
-    let len = (seconds * SAMPLE_RATE) as usize;
-    let raw: Vec<f32> = (0..len)
-        .map(|n| {
-            let t = n as f32 / SAMPLE_RATE;
-            let tone: f32 = (0..8)
-                .filter(|&i| freq * (i + 1) as f32 * 2.0 < SAMPLE_RATE)
-                .map(|i| {
-                    let w = std::f32::consts::TAU * freq * (i + 1) as f32;
-                    gains[i] * (w * t + phases[i]).sin()
-                })
-                .sum();
-            tone * (-t / 1.5).exp()
-        })
-        .collect();
-    let first_period = (SAMPLE_RATE / freq) as usize * 2;
-    let scale = amplitude / peak(&raw[..first_period.min(raw.len())]);
-    raw.into_iter().map(|s| s * scale).collect()
-}
-
 /// Cents between a fractional MIDI pitch and an equal-tempered note.
 fn cents_off(pitch: f32, note: f32) -> f32 {
     (pitch - note) * 100.0
